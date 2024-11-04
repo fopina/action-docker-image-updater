@@ -43,7 +43,8 @@ class CLI:
         self._repo = repo
         self._re_image = re.compile(r"""\s*image: (&[a-z\-]+ )?["']?(.+?):(.+)["']?""")
         self._re_tag = re.compile(r'(.*?)(\d+([\.-]\d+)*)(.*)')
-        self._base_revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+
+        # self._base_revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
         self.repo_dir = Path(__file__).absolute().parent.parent
 
     def setup_git(self):
