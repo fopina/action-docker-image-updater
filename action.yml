@@ -16,4 +16,4 @@ runs:
   # image: docker://ghcr.io/fopina/action-docker-image-updater:latest
   image: 'Dockerfile'
   env:
-    X: ${{ github.token }}
+    GITHUB_TOKEN: ${{ secrets.TOKEN }}
