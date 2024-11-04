@@ -1,0 +1,25 @@
+# TODO: make sure to change the action name here (must be unique).
+# Update the rest as needed.
+name: 'python-template'
+description: 'Sum 2 numbers and a little extra'
+branding: # TODO: choose yours from https://github.com/haya14busa/github-action-brandings
+  icon: 'book-open'
+  color: 'green'
+# TODO: update with your inputs and outputs
+inputs:
+  number-one:  
+    description: 'Choose a number'
+    required: false
+  number-two:
+    description: 'Choose another number'
+    required: false
+outputs:
+  sum:
+    description: 'Sum of both numbers, if provided - a joke otherwise'
+runs:
+  using: 'docker'
+  # TODO: if you're not pre-building the action container, replace this one with the commented line below (and remove the publish-image workflow)
+  # if you are using it, update the image name
+  # still useful to keep the other line, in case you want to switch between them when using feature branches (so it's built from the branch)
+  image: docker://ghcr.io/fopina/action-python-template:latest
+  # image: 'Dockerfile'
