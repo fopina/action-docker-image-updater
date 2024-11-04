@@ -30,7 +30,6 @@ testpaths = [
     "tests",
 ]
 
-# TODO: add/replace source list if you need
 [tool.coverage.run]
 source = ["entrypoint"]
 

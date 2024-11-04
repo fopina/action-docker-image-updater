@@ -7,8 +7,6 @@ from unittest import mock
 import entrypoint
 
 
-# TODO: do not forget to add testcases that make sense to you
-# Good coverage will make it much easier/safer to just merge those dependabot PRs
 class Test(unittest.TestCase):
     def setUp(self) -> None:
         super().setUp()
