@@ -166,6 +166,7 @@ class CLI:
 
     def dry_run(self):
         for stack in self.repo_dir.glob('*.yml'):
+            print(stack)
             r = self.proc_stack(stack)
             done_header = False
             for image, nt in r:
