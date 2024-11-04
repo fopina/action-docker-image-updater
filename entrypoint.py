@@ -177,7 +177,7 @@ class CLI:
 
 def build_parser():
     p = argparse.ArgumentParser()
-    p.add_argument('token', help='Github token')
+    p.add_argument('token', help='Github token', dfault=os.getenv('INPUT_TOKEN'))
     p.add_argument(
         '--dry', action='store_true', help='Dry run to only check which images would be updated - for testing'
     )
@@ -185,10 +185,10 @@ def build_parser():
 
 
 def main(argv=None):
-    print(os.environ)
-    return
     args = build_parser().parse_args(argv)
     c = CLI(args.token)
+    if os.getenv('INPUT_DRY', 'false') == 'true':
+        args.dry = True
     if args.dry:
         c.dry_run()
     else:

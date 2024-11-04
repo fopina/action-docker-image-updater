@@ -4,6 +4,9 @@ branding:
   icon: 'corner-right-up'
   color: 'green'
 inputs:
+  token:
+    description: Token with enough permissions to open pull requests in your repository
+    required: true
   dry:
     description: 'Do not create a pull request with the changes, just output them'
     required: false
@@ -15,5 +18,3 @@ runs:
   using: 'docker'
   # image: docker://ghcr.io/fopina/action-docker-image-updater:latest
   image: 'Dockerfile'
-  env:
-    GITHUB_TOKEN: ${{ secrets.TOKEN }}
