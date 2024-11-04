@@ -24,9 +24,6 @@ def set_github_action_output(output_name, output_value):
         print(line, end=None)
 
 
-REPO = 'fopina/home-services'
-
-
 @lru_cache
 def get_tags(repository):
     r = requests.get(
@@ -41,8 +38,9 @@ def get_tags(repository):
 
 
 class CLI:
-    def __init__(self, token):
+    def __init__(self, token, repo):
         self._token = token
+        self._repo = repo
         self._re_image = re.compile(r"""\s*image: (&[a-z\-]+ )?["']?(.+?):(.+)["']?""")
         self._re_tag = re.compile(r'(.*?)(\d+([\.-]\d+)*)(.*)')
         self._base_revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
@@ -108,7 +106,7 @@ class CLI:
             body = 'Auto-generated pull request.'
 
         r = requests.post(
-            f'https://api.github.com/repos/{REPO}/pulls',
+            f'https://api.github.com/repos/{self._repo}/pulls',
             headers={
                 'Authorization': f'token {self._token}',
             },
@@ -177,16 +175,17 @@ class CLI:
 
 def build_parser():
     p = argparse.ArgumentParser()
-    p.add_argument('token', help='Github token', dfault=os.getenv('INPUT_TOKEN'))
+    p.add_argument('--token', help='Github token', default=os.getenv('INPUT_TOKEN'))
     p.add_argument(
         '--dry', action='store_true', help='Dry run to only check which images would be updated - for testing'
     )
+    p.add_argument('--repo', type=str, default=os.getenv('GITHUB_REPOSITORY'), help='Github project being updated')
     return p
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    c = CLI(args.token)
+    c = CLI(args.token, args.repo)
     if os.getenv('INPUT_DRY', 'false') == 'true':
         args.dry = True
     if args.dry:
