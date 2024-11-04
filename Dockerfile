@@ -13,6 +13,7 @@ RUN pip install --target=/app -r requirements.txt
 # --- main
 
 FROM base
+RUN apk add --no-cache git
 COPY --from=builder /app /app
 ENV PYTHONPATH=/app
 COPY entrypoint.py /entrypoint.py
