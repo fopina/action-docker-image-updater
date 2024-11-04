@@ -185,6 +185,8 @@ def build_parser():
 
 
 def main(argv=None):
+    print(os.environ)
+    return
     args = build_parser().parse_args(argv)
     c = CLI(args.token)
     if args.dry:
