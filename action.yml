@@ -16,5 +16,5 @@ outputs:
     description: 'Plan of the changes to be commited'
 runs:
   using: 'docker'
-  # image: docker://ghcr.io/fopina/action-docker-image-updater:latest
-  image: 'Dockerfile'
+  image: docker://ghcr.io/fopina/action-docker-image-updater:latest
+  # image: 'Dockerfile'
