@@ -189,6 +189,7 @@ def build_parser():
 
 def main(argv=None):
     print('hello', os.environ)
+    print('AGAIN')
     args = build_parser().parse_args(argv)
     c = CLI(args.token, args.repo)
     if os.getenv('INPUT_DRY', 'false') == 'true':
