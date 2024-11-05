@@ -47,7 +47,7 @@ class CLI:
         if 'GITHUB_OUTPUT' in os.environ:
             subprocess.check_call(['git', 'config', '--global', '--add', 'safe.directory', '/github/workspace'])
         self._base_revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-        self.repo_dir = Path('.')
+        self.repo_dir = Path('.').absolute()
 
     def setup_git(self):
         subprocess.check_call('git config user.email updater@devnull.localhost', shell=True)
