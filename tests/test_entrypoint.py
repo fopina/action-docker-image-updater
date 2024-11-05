@@ -2,13 +2,10 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 import entrypoint
 
 
-# TODO: do not forget to add testcases that make sense to you
-# Good coverage will make it much easier/safer to just merge those dependabot PRs
 class Test(unittest.TestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -20,26 +17,15 @@ class Test(unittest.TestCase):
         os.environ = self._env
         self.out_file.unlink()
 
-    def test_sum(self):
+    def test_dry(self):
+        # FIXME: useless test, no assertions
         os.environ.update(
             {
                 'GITHUB_OUTPUT': str(self.out_file),
-                'INPUT_NUMBER-ONE': '1',
-                'INPUT_NUMBER-TWO': '10',
+                'INPUT_TOKEN': 'xxx',
+                'INPUT_DRY': 'true',
             }
         )
-        entrypoint.main()
+        entrypoint.main(['--token', 'xxx'])
         output = self.out_file.read_text().strip()
-        self.assertEqual(output, 'sum=11')
-
-    @mock.patch('entrypoint.requests')
-    def test_joke(self, req_mock):
-        req_mock.get.return_value.json.return_value = {'joke': 'haha'}
-        os.environ.update(
-            {
-                'GITHUB_OUTPUT': str(self.out_file),
-            }
-        )
-        entrypoint.main()
-        output = self.out_file.read_text().strip()
-        self.assertEqual(output, 'sum=haha')
+        self.assertEqual(output, '')

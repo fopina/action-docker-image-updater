@@ -1,32 +1,7 @@
-# action-python-template
+[![Test](https://github.com/fopina/action-docker-image-updater/actions/workflows/test.yml/badge.svg)](https://github.com/fopina/action-docker-image-updater/actions/workflows/test.yml)
+[![Test](https://github.com/fopina/action-docker-image-updater/actions/workflows/publish-image.yml/badge.svg)](https://github.com/fopina/action-docker-image-updater/actions/workflows/publish-image.yml)
 
-A template repository for GitHub Actions implemented in Python.
-
-## Content
-
-* `pytest` for tests: `make test`
-* `ruff` for linting/formatting: `make lint` (replaces both `black` and `isort`)
-* `.github` with actions ready to be used
-    * ...
-* `action.yml` and `entrypoint.py` to serve as placeholders with a valid dummy action
-* Template README.md below
-
-## New project checklist
-
-* [ ] Replace `action.yml` with your action details
-* [ ] Replace `entrypoint.py` with your code
-* [ ] Replace `LICENSE` if MIT does not apply
-* [ ] Search the project for `# TODO` to find the (minimum list of) places that need to be changed
-
----
----
----
-
-
-[![Test](https://github.com/fopina/action-python-template/actions/workflows/test.yml/badge.svg)](https://github.com/fopina/action-python-template/actions/workflows/test.yml)
-[![Test](https://github.com/fopina/action-python-template/actions/workflows/publish-image.yml/badge.svg)](https://github.com/fopina/action-python-template/actions/workflows/publish-image.yml)
-
-# action-python-template
+# action-docker-image-updater
 
 This action takes 2 integers as input and returns the sum of those in the output variable `sum`.
 
@@ -34,7 +9,7 @@ It also adds a joke to output `joke` to brighten your day.
 
 # What's new
 
-Please refer to the [release page](https://github.com/fopina/action-python-template/releases/latest) for the latest release notes.
+Please refer to the [release page](https://github.com/fopina/action-docker-image-updater/releases/latest) for the latest release notes.
 
 # Usage
 
@@ -42,31 +17,34 @@ See [action.yml](action.yml)
 
 # Scenarios
 
-- [Sum two numbers](#sum-two-numbers)
-- [Easter egg](#easter-egg)
+- [Check for image updates](#check-for-image-updates)
+- [Dry run](#dry-run)
 
-## Sum two numbers
+## Check for image updates
 
 ```yaml
-- uses: fopina/action-python-template@v1
-  id: sumit
-  with:
-    number-one: 3
-    number-two: 5
+# also need to enable `Allow GitHub Actions to create and approve pull requests`
+# in `Settings` -> `Actions` -> `General` (on top of these permissions)
+permissions:
+  contents: write
+  pull-requests: write
 
-- run: |
-    echo ${{ steps.sumit.outputs.sum }}      
+- uses: fopina/action-docker-image-updater@v1
+  with:
+    token: "${{ github.token }}"
 ```
 
-## Easter egg
+## Dry run
 
 ```yaml
-- uses: fopina/action-python-template@v1
-  id: sumit
+# also need to enable `Allow GitHub Actions to create and approve pull requests`
+# in `Settings` -> `Actions` -> `General` (on top of these permissions)
+permissions:
+  contents: write
+  pull-requests: write
 
-# use heredocs as this output might have special characters
-- run: |
-    cat <<'EOF'
-    ${{ steps.sumit.outputs.sum }}
-    EOF
+- uses: fopina/action-docker-image-updater@v1
+  with:
+    token: "${{ github.token }}"
+    dry: 'true'
 ```

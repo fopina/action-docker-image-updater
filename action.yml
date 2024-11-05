@@ -1,25 +1,20 @@
-# TODO: make sure to change the action name here (must be unique).
-# Update the rest as needed.
-name: 'python-template'
-description: 'Sum 2 numbers and a little extra'
-branding: # TODO: choose yours from https://github.com/haya14busa/github-action-brandings
-  icon: 'book-open'
+name: 'docker-image-updater'
+description: 'Update image versions inside docker compose files'
+branding:
+  icon: 'corner-right-up'
   color: 'green'
-# TODO: update with your inputs and outputs
 inputs:
-  number-one:  
-    description: 'Choose a number'
+  token:
+    description: Token with enough permissions to open pull requests in your repository
+    required: true
+  dry:
+    description: 'Do not create a pull request with the changes, just output them'
     required: false
-  number-two:
-    description: 'Choose another number'
-    required: false
+    default: 'false'
 outputs:
-  sum:
-    description: 'Sum of both numbers, if provided - a joke otherwise'
+  plan:
+    description: 'Plan of the changes to be commited'
 runs:
   using: 'docker'
-  # TODO: if you're not pre-building the action container, replace this one with the commented line below (and remove the publish-image workflow)
-  # if you are using it, update the image name
-  # still useful to keep the other line, in case you want to switch between them when using feature branches (so it's built from the branch)
-  image: docker://ghcr.io/fopina/action-python-template:latest
+  image: docker://ghcr.io/fopina/action-docker-image-updater:latest
   # image: 'Dockerfile'
