@@ -49,8 +49,8 @@ jobs:
         uses: ./
         id: sumit
         with:
-          number-one: 2
-          number-two: 1
+          token: "${{ github.token }}"
+          dry: 'true'
 
       - name: Assert integration test
         env:
