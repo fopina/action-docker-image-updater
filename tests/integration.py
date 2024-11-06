@@ -34,7 +34,7 @@ class TestIntegration(unittest.TestCase):
             plan,
             {
                 'tests/files/docker-compose.yml': [[['nginx', '1.19'], mock.ANY]],
-                'tests/files/other.yml': [[['nginx', '1.19'], mock.ANY]],
+                'tests/files/other.yml': [[['nginx', '1.19-alpine'], mock.ANY]],
             },
         )
 
