@@ -7,6 +7,10 @@ This action takes 2 integers as input and returns the sum of those in the output
 
 It also adds a joke to output `joke` to brighten your day.
 
+> **Note**  
+> [renovatebot](https://github.com/renovatebot/github-action) looks like the best option to do this, I recommend it over this action.  
+> I only keep it as I did before finding out about it and it has some specific behavior I need.
+
 # What's new
 
 Please refer to the [release page](https://github.com/fopina/action-docker-image-updater/releases/latest) for the latest release notes.
