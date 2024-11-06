@@ -18,17 +18,19 @@ class Test(unittest.TestCase):
             {
                 'GITHUB_OUTPUT': str(self.out_file),
                 'INPUT_TOKEN': 'xxx',
-                'INPUT_DRY': 'true',
             }
         )
         self._req_patch = mock.patch('entrypoint.requests')
         self.req_mock = self._req_patch.start()
+        self._process_patch = mock.patch('entrypoint.subprocess')
+        self.sp_mock = self._process_patch.start()
         entrypoint.get_tags.cache_clear()
 
     def tearDown(self) -> None:
         os.environ = self._env
         self.out_file.unlink()
         self._req_patch.stop()
+        self._process_patch.stop()
 
     def load_plan(self):
         data = self.out_file.read_text().strip()
@@ -39,19 +41,25 @@ class Test(unittest.TestCase):
 
     def test_default_no_update(self):
         self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19']}
-        entrypoint.main(['--token', 'xxx'])
+        entrypoint.main(['--dry'])
         plan = self.load_plan()
         self.assertIsNone(plan)
 
     def test_default_update(self):
         self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.21-alpine']}
-        entrypoint.main(['--token', 'xxx'])
+        entrypoint.main(['--dry'])
+        plan = self.load_plan()
+        self.assertEqual(plan, {'tests/files/docker-compose.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]]})
+
+    def test_default_update_non_dry(self):
+        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.21-alpine']}
+        entrypoint.main(['--dry'])
         plan = self.load_plan()
         self.assertEqual(plan, {'tests/files/docker-compose.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]]})
 
     def test_file_match(self):
         self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.20-alpine']}
-        entrypoint.main(['--token', 'xxx', '--file-match', '**/*.yml'])
+        entrypoint.main(['--dry', '--file-match', '**/*.yml'])
         plan = self.load_plan()
         self.assertEqual(
             plan,
@@ -67,7 +75,7 @@ class Test(unittest.TestCase):
             'portainer_version': 'portainer/portainer-ce:?-alpine',
             'portainer_agent_version': 'portainer/agent:?-alpine',
         }
-        entrypoint.main(['--token', 'xxx', '--file-match', '**/*book.yml', '--extra', json.dumps(extra)])
+        entrypoint.main(['--dry', '--file-match', '**/*book.yml', '--extra', json.dumps(extra)])
         plan = self.load_plan()
         self.assertEqual(
             plan,

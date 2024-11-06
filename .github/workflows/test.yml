@@ -59,6 +59,19 @@ jobs:
           token: "${{ github.token }}"
           file-match: '**/*.yml'
           dry: 'true'
+      
+      - name: Integration test
+        uses: ./
+        id: it3
+        with:
+          token: "${{ github.token }}"
+          file-match: '**/*.yml'
+          extra-config: >
+            {
+              "portainer_version": "portainer/portainer-ce:?-alpine",
+              "portainer_agent_version": "portainer/agent:?-alpine"
+            }
+          dry: 'true'
 
       - name: print out plan
         env:

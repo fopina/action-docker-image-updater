@@ -37,3 +37,13 @@ class TestIntegration(unittest.TestCase):
                 'tests/files/other.yml': [[['nginx', '1.19'], mock.ANY]],
             },
         )
+    
+    def test_it3(self):
+        plan = self.load_plan('it3')
+        self.assertEqual(
+            plan,
+            {
+                'tests/files/docker-compose.yml': [[['nginx', '1.19'], mock.ANY]],
+                'tests/files/other.yml': [[['nginx', '1.19'], mock.ANY]],
+            },
+        )
