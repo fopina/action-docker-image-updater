@@ -16,7 +16,7 @@ class TestIntegration(unittest.TestCase):
         self.assertIn(step_id, data)
         if 'plan' not in data[step_id].get('outputs', {}):
             return None
-        return json.loads(data[step_id]['plan'])
+        return json.loads(data[step_id]['outputs']['plan'])
 
     def test_it1(self):
         # FIXME: do some test?
