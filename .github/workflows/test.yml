@@ -3,8 +3,8 @@ name: 🧪 tests
 on:
   workflow_call:
   push:
-    # paths-ignore:
-    #   - .github/**
+    paths-ignore:
+      - .github/**
 
 jobs:
   tests:
@@ -47,10 +47,24 @@ jobs:
 
       - name: Integration test
         uses: ./
-        id: sumit
+        id: it1
         with:
           token: "${{ github.token }}"
           dry: 'true'
+
+      - name: Integration test
+        uses: ./
+        id: it2
+        with:
+          token: "${{ github.token }}"
+          file-match: '**/*.yml'
+          dry: 'true'
+
+      - name: print out plan
+        env:
+          PLAN: ${{ steps.it2.outputs.plan }}
+        run:
+          echo "$PLAN"
 
       - name: Assert integration test
         env:

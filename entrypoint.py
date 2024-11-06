@@ -1,6 +1,7 @@
 #!/usr/bin/env -S python3 -u
 import argparse
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -38,9 +39,10 @@ def get_tags(repository):
 
 
 class CLI:
-    def __init__(self, token, repo):
+    def __init__(self, token, repo, file_match):
         self._token = token
         self._repo = repo
+        self._glob = file_match
         self._re_image = re.compile(r"""\s*image: (&[a-z\-]+ )?["']?(.+?):(.+)["']?""")
         self._re_tag = re.compile(r'(.*?)(\d+([\.-]\d+)*)(.*)')
         # solve container issue
@@ -67,9 +69,17 @@ class CLI:
         for image in self._re_image.findall(s):
             # trim anchor
             image = image[1:]
+            # check if no explicit registry is specified and assume default is dockerhub (as it's the only supported)
+            # same logic as in
+            # https://github.com/moby/moby/blob/f0cec02a403496e2b1dd1aaf12b2530922e210db/registry/search.go#L144
             if image[0].count('/') > 1:
+                part1 = image[0].split('/', 1)[0]
                 # TODO: support non-hub registries
-                continue
+                if '.' in part1 or ':' in part1 or part1 == 'localhost':
+                    print(
+                        f'::notice file={stack.relative_to(self.repo_dir)}::Image {image[0]} using non-supported registry'
+                    )
+                    continue
 
             disabled = re.findall(r'# autoupdater: disable\s+[^\n]*' + image[0], s, re.DOTALL)
             if disabled:
@@ -155,7 +165,7 @@ class CLI:
 
     def run(self):
         self.setup_git()
-        for stack in self.repo_dir.glob('*.yml'):
+        for stack in self.repo_dir.glob(self._glob):
             r = self.proc_stack(stack)
             if r:
                 updated, branch = self.update_stack(stack, r)
@@ -165,16 +175,22 @@ class CLI:
                     self.cleanup_branches(stack, keep=[branch])
 
     def dry_run(self):
-        for stack in self.repo_dir.glob('*.yml'):
-            print(stack)
+        plan = {}
+        for stack in self.repo_dir.glob(self._glob):
             r = self.proc_stack(stack)
             done_header = False
+            any_update = False
             for image, nt in r:
                 if nt:
+                    any_update = True
                     if not done_header:
                         print(f'== {stack.name}')
                         done_header = True
                     print(image, nt)
+            if any_update:
+                plan[str(stack.relative_to(self.repo_dir))] = r
+        if plan:
+            set_github_action_output('plan', json.dumps(plan))
 
 
 def build_parser():
@@ -184,12 +200,18 @@ def build_parser():
         '--dry', action='store_true', help='Dry run to only check which images would be updated - for testing'
     )
     p.add_argument('--repo', type=str, default=os.getenv('GITHUB_REPOSITORY'), help='Github project being updated')
+    p.add_argument(
+        '--file-match',
+        type=str,
+        default=os.getenv('INPUT_FILE-MATCH', '**/docker-compose.y*ml'),
+        help='Glob to match compose files',
+    )
     return p
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    c = CLI(args.token, args.repo)
+    c = CLI(args.token, args.repo, args.file_match)
     if os.getenv('INPUT_DRY', 'false') == 'true':
         args.dry = True
     if args.dry:

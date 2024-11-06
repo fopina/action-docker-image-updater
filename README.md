@@ -7,6 +7,10 @@ This action takes 2 integers as input and returns the sum of those in the output
 
 It also adds a joke to output `joke` to brighten your day.
 
+> **Note**  
+> [renovatebot](https://github.com/renovatebot/github-action) looks like the best option to do this, I recommend it over this action.  
+> I only keep it as I did before finding out about it and it has some specific behavior I need.
+
 # What's new
 
 Please refer to the [release page](https://github.com/fopina/action-docker-image-updater/releases/latest) for the latest release notes.
@@ -17,10 +21,11 @@ See [action.yml](action.yml)
 
 # Scenarios
 
-- [Check for image updates](#check-for-image-updates)
+- [Check docker-compose for image updates](#check-docker-compose-for-image-updates)
+- [Check any yaml file for image updates][#check-any-yaml-file-for-image-updates]
 - [Dry run](#dry-run)
 
-## Check for image updates
+## Check docker-compose for image updates
 
 ```yaml
 # also need to enable `Allow GitHub Actions to create and approve pull requests`
@@ -34,7 +39,7 @@ permissions:
     token: "${{ github.token }}"
 ```
 
-## Dry run
+## Check any yaml file for image updates
 
 ```yaml
 # also need to enable `Allow GitHub Actions to create and approve pull requests`
@@ -46,5 +51,23 @@ permissions:
 - uses: fopina/action-docker-image-updater@v1
   with:
     token: "${{ github.token }}"
+    file-match: '**/*.y*ml'
+```
+
+## Dry run
+
+Capture the plan without actually creating any branch or pull request
+
+```yaml
+- uses: fopina/action-docker-image-updater@v1
+  id: updater
+  with:
+    token: "${{ github.token }}"
     dry: 'true'
+
+- name: print out plan
+  env:
+    PLAN: ${{ steps.updater.outputs.plan }}
+  run:
+    echo "$PLAN"
 ```
