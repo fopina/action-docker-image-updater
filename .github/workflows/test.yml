@@ -60,6 +60,12 @@ jobs:
           file-match: '**/*.yml'
           dry: 'true'
 
+      - name: print out plan
+        env:
+          PLAN: ${{ steps.it2.outputs.plan }}
+        run:
+          echo "$PLAN"
+
       - name: Assert integration test
         env:
           STEPS_CONTEXT: ${{ toJson(steps) }}

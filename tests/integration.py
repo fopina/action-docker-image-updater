@@ -30,6 +30,7 @@ class TestIntegration(unittest.TestCase):
 
     def test_it2(self):
         plan = self.load_plan('it2')
+        self.assertEqual(plan, mock.ANY)
         self.assertEqual(
             plan,
             {
