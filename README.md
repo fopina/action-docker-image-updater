@@ -21,10 +21,10 @@ See [action.yml](action.yml)
 
 # Scenarios
 
-- [Check for image updates](#check-for-image-updates)
+- [Check docker-compose for image updates](#check-docker-compose-for-image-updates)
 - [Dry run](#dry-run)
 
-## Check for image updates
+## Check docker-compose for image updates
 
 ```yaml
 # also need to enable `Allow GitHub Actions to create and approve pull requests`
@@ -38,7 +38,7 @@ permissions:
     token: "${{ github.token }}"
 ```
 
-## Dry run
+## Check any yaml file for image updates
 
 ```yaml
 # also need to enable `Allow GitHub Actions to create and approve pull requests`
@@ -50,5 +50,23 @@ permissions:
 - uses: fopina/action-docker-image-updater@v1
   with:
     token: "${{ github.token }}"
+    file-match: '**/*.y*ml'
+```
+
+## Dry run
+
+Capture the plan without actually creating any branch or pull request
+
+```yaml
+- uses: fopina/action-docker-image-updater@v1
+  id: updater
+  with:
+    token: "${{ github.token }}"
     dry: 'true'
+
+- name: print out plan
+  env:
+    PLAN: ${{ steps.updater.outputs.plan }}
+  run:
+    echo "$PLAN"
 ```

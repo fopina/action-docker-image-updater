@@ -165,7 +165,7 @@ class CLI:
 
     def run(self):
         self.setup_git()
-        for stack in self.repo_dir.glob('*.yml'):
+        for stack in self.repo_dir.glob(self._glob):
             r = self.proc_stack(stack)
             if r:
                 updated, branch = self.update_stack(stack, r)
