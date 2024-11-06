@@ -81,7 +81,7 @@ permissions:
   with:
     token: "${{ github.token }}"
     file-match: '**/*.y*ml'
-    extra-config: >
+    extra-fields: >
       {
         "portainer_version": "portainer/portainer-ce:?-alpine",
         "portainer_agent_version": "portainer/agent:?-alpine"
