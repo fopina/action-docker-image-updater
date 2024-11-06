@@ -11,4 +11,5 @@ class TestIntegration(unittest.TestCase):
 
     def test_nothing(self):
         # FIXME: do some test?
-        json.loads(os.getenv('STEPS_CONTEXT'))
+        x = json.loads(os.getenv('STEPS_CONTEXT'))
+        self.assertEqual(x, '')
