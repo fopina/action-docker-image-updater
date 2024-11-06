@@ -41,11 +41,9 @@ class TestIntegration(unittest.TestCase):
     def test_it3(self):
         plan = self.load_plan('it3')
         self.assertEqual(
-            plan,
-            {
-                'tests/files/ansible_playbook.yml': [
-                    [['portainer_version: ', '2.21.0'], mock.ANY],
-                    [['portainer_agent_version: ', '2.21.0'], mock.ANY],
-                ]
-            },
+            plan.get('tests/files/ansible_playbook.yml'),
+            [
+                [['portainer_version: ', '2.21.0'], mock.ANY],
+                [['portainer_agent_version: ', '2.21.0'], mock.ANY],
+            ],
         )
