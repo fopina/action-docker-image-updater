@@ -33,7 +33,7 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(
             plan,
             {
-                'tests/files/other.yml': [[['nginx', '1.19'], mock.ANY]],
                 'tests/files/docker-compose.yml': [[['nginx', '1.19'], mock.ANY]],
+                'tests/files/other.yml': [[['nginx', '1.19'], mock.ANY]],
             },
         )
