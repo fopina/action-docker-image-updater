@@ -44,19 +44,37 @@ class Test(unittest.TestCase):
         self.assertIsNone(plan)
 
     def test_default_update(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20']}
+        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.21-alpine']}
         entrypoint.main(['--token', 'xxx'])
         plan = self.load_plan()
         self.assertEqual(plan, {'tests/files/docker-compose.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]]})
 
     def test_file_match(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20']}
+        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.20-alpine']}
         entrypoint.main(['--token', 'xxx', '--file-match', '**/*.yml'])
         plan = self.load_plan()
         self.assertEqual(
             plan,
             {
-                'tests/files/other.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]],
+                'tests/files/other.yml': [[['nginx', '1.19-alpine'], [[[1, 20], '1.20-alpine']]]],
                 'tests/files/docker-compose.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]],
+            },
+        )
+
+    def test_custom_field(self):
+        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['2.24.0-alpine', '2.25.0']}
+        extra = {
+            'portainer_version': 'portainer/portainer-ce:?-alpine',
+            'portainer_agent_version': 'portainer/agent:?-alpine',
+        }
+        entrypoint.main(['--token', 'xxx', '--file-match', '**/*book.yml', '--extra', json.dumps(extra)])
+        plan = self.load_plan()
+        self.assertEqual(
+            plan,
+            {
+                'tests/files/ansible_playbook.yml': [
+                    ['portainer/portainer-ce', [[[2, 24, 0], '2.24.0-alpine']]],
+                    ['portainer/agent', [[[2, 24, 0], '2.24.0-alpine']]],
+                ]
             },
         )
