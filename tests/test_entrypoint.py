@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -29,25 +30,33 @@ class Test(unittest.TestCase):
         self.out_file.unlink()
         self._req_patch.stop()
 
+    def load_plan(self):
+        data = self.out_file.read_text().strip()
+        if not data:
+            return None
+        self.assertEqual(data[:5], 'plan=')
+        return json.loads(data[5:])
+
     def test_default_no_update(self):
         self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19']}
         entrypoint.main(['--token', 'xxx'])
-        output = self.out_file.read_text().strip()
-        self.assertEqual(output, '')
+        plan = self.load_plan()
+        self.assertIsNone(plan)
 
     def test_default_update(self):
         self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20']}
         entrypoint.main(['--token', 'xxx'])
-        output = self.out_file.read_text().strip()
-        self.assertEqual(output, """tests/files/docker-compose.yml=[[["nginx", "1.19"], [[[1, 20], "1.20"]]]]""")
+        plan = self.load_plan()
+        self.assertEqual(plan, {'tests/files/docker-compose.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]]})
 
     def test_file_match(self):
         self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20']}
         entrypoint.main(['--token', 'xxx', '--file-match', '**/*.yml'])
-        output = self.out_file.read_text().strip()
+        plan = self.load_plan()
         self.assertEqual(
-            output,
-            """\
-tests/files/other.yml=[[["nginx", "1.19"], [[[1, 20], "1.20"]]]]
-tests/files/docker-compose.yml=[[["nginx", "1.19"], [[[1, 20], "1.20"]]]]""",
+            plan,
+            {
+                'tests/files/other.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]],
+                'tests/files/docker-compose.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]],
+            },
         )

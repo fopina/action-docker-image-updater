@@ -175,6 +175,7 @@ class CLI:
                     self.cleanup_branches(stack, keep=[branch])
 
     def dry_run(self):
+        plan = {}
         for stack in self.repo_dir.glob(self._glob):
             r = self.proc_stack(stack)
             done_header = False
@@ -187,7 +188,9 @@ class CLI:
                         done_header = True
                     print(image, nt)
             if any_update:
-                set_github_action_output(str(stack.relative_to(self.repo_dir)), json.dumps(r))
+                plan[str(stack.relative_to(self.repo_dir))] = r
+        if plan:
+            set_github_action_output('plan', json.dumps(plan))
 
 
 def build_parser():
