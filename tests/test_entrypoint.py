@@ -105,4 +105,4 @@ class Test(unittest.TestCase):
         }
         with self.copy_from('ansible_playbook.yml') as dest:
             entrypoint.main(['--file-match', 'tests/temp*/**/*book.yml', '--extra', json.dumps(extra)])
-            self.assertRegexpMatches(dest.read_text(), r'\s+portainer_version: 2\.24\.0\b')
+            self.assertRegex(dest.read_text(), r'\s+portainer_version: 2\.24\.0\b')
