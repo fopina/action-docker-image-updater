@@ -43,7 +43,9 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(
             plan,
             {
-                'tests/files/docker-compose.yml': [[['nginx', '1.19'], mock.ANY]],
-                'tests/files/other.yml': [[['nginx', '1.19'], mock.ANY]],
+                'tests/files/ansible_playbook.yml': [
+                    [['portainer_version: ', '2.21.0'], mock.ANY],
+                    [['portainer_agent_version: ', '2.21.0'], mock.ANY],
+                ]
             },
         )
