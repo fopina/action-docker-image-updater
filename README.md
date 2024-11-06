@@ -23,9 +23,13 @@ See [action.yml](action.yml)
 
 - [Check docker-compose for image updates](#check-docker-compose-for-image-updates)
 - [Check any yaml file for image updates][#check-any-yaml-file-for-image-updates]
+- [Check any yaml file for image updates][#check-any-yaml-file-for-image-updates]
 - [Dry run](#dry-run)
 
 ## Check docker-compose for image updates
+
+This will look for `docker-compose.ya?ml` files in the repository and check any `image:` lines for updates.  
+For each stack found having updates, a PR is created.
 
 ```yaml
 # also need to enable `Allow GitHub Actions to create and approve pull requests`
@@ -41,6 +45,9 @@ permissions:
 
 ## Check any yaml file for image updates
 
+This will look for any `*.yml` files in the repository and check any `image:` lines for updates.  
+For each stack found having updates, a PR is created.
+
 ```yaml
 # also need to enable `Allow GitHub Actions to create and approve pull requests`
 # in `Settings` -> `Actions` -> `General` (on top of these permissions)
@@ -52,6 +59,29 @@ permissions:
   with:
     token: "${{ github.token }}"
     file-match: '**/*.y*ml'
+```
+
+## Check custom fields for image versions
+
+This will look for any `*.y*ml` files in the repository and check any `image:` lines for updates.  
+For each stack found having updates, a PR is created.
+
+```yaml
+# also need to enable `Allow GitHub Actions to create and approve pull requests`
+# in `Settings` -> `Actions` -> `General` (on top of these permissions)
+permissions:
+  contents: write
+  pull-requests: write
+
+- uses: fopina/action-docker-image-updater@v1
+  with:
+    token: "${{ github.token }}"
+    file-match: '**/*.y*ml'
+    extra-config: >
+      {
+        "portainer_version": "portainer/portainer-ce:?-alpine",
+        "portainer_agent_version": "portainer/agent:?-alpine"
+      }
 ```
 
 ## Dry run
