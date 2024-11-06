@@ -47,9 +47,17 @@ jobs:
 
       - name: Integration test
         uses: ./
-        id: sumit
+        id: it1
         with:
           token: "${{ github.token }}"
+          dry: 'true'
+
+      - name: Integration test
+        uses: ./
+        id: it2
+        with:
+          token: "${{ github.token }}"
+          file-match: '**/*.yml'
           dry: 'true'
 
       - name: Assert integration test
