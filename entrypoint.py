@@ -200,7 +200,12 @@ def build_parser():
         '--dry', action='store_true', help='Dry run to only check which images would be updated - for testing'
     )
     p.add_argument('--repo', type=str, default=os.getenv('GITHUB_REPOSITORY'), help='Github project being updated')
-    p.add_argument('--file-match', type=str, default='**/docker-compose.y*ml', help='Glob to match compose files')
+    p.add_argument(
+        '--file-match',
+        type=str,
+        default=os.getenv('INPUT_FILE-MATCH', '**/docker-compose.y*ml'),
+        help='Glob to match compose files',
+    )
     return p
 
 
