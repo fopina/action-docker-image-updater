@@ -11,7 +11,7 @@ class TestIntegration(unittest.TestCase):
 
     def load_plan(self, step_id):
         data = os.getenv('STEPS_CONTEXT')
-        self.assertIsNone(data)
+        self.assertIsNotNone(data)
         self.assertIn(step_id, data)
         if 'plan' not in data[step_id]:
             return None
