@@ -9,7 +9,15 @@ class TestIntegration(unittest.TestCase):
     This prevents simple `pytest` from picking it up as it should only run inside the test action
     """
 
-    def test_nothing(self):
+    def load_plan(self, step_id):
+        data = os.getenv('STEPS_CONTEXT')
+        self.assertIsNone(data)
+        self.assertIn(step_id, data)
+        if 'plan' not in data[step_id]:
+            return None
+        return json.loads(data[step_id]['plan'])
+
+    def test_it1(self):
         # FIXME: do some test?
-        x = json.loads(os.getenv('STEPS_CONTEXT'))
-        self.assertEqual(x, '')
+        plan = self.load_plan('it1')
+        self.assertEqual(plan, '')
