@@ -45,14 +45,14 @@ jobs:
         run: |
           sed -i 's/^  image\:.*/  image\: Dockerfile/g' action.yml  
 
-      - name: Integration test
+      - name: Integration test 1
         uses: ./
         id: it1
         with:
           token: "${{ github.token }}"
           dry: 'true'
 
-      - name: Integration test
+      - name: Integration test 2
         uses: ./
         id: it2
         with:
@@ -60,7 +60,7 @@ jobs:
           file-match: '**/*.yml'
           dry: 'true'
       
-      - name: Integration test
+      - name: Integration test 3
         uses: ./
         id: it3
         with:

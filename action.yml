@@ -13,6 +13,9 @@ inputs:
   dry:
     description: 'Do not create a pull request with the changes, just output them'
     default: 'false'
+  extra-fields:
+    description: JSON dictionary with field names mapped to their image, templated with tag and version
+    required: false
 outputs:
   plan:
     description: 'Plan of the changes to be commited'

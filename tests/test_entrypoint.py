@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -51,12 +52,6 @@ class Test(unittest.TestCase):
         plan = self.load_plan()
         self.assertEqual(plan, {'tests/files/docker-compose.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]]})
 
-    def test_default_update_non_dry(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.21-alpine']}
-        entrypoint.main(['--dry'])
-        plan = self.load_plan()
-        self.assertEqual(plan, {'tests/files/docker-compose.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]]})
-
     def test_file_match(self):
         self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.20-alpine']}
         entrypoint.main(['--dry', '--file-match', '**/*.yml'])
@@ -81,8 +76,33 @@ class Test(unittest.TestCase):
             plan,
             {
                 'tests/files/ansible_playbook.yml': [
-                    ['portainer/portainer-ce', [[[2, 24, 0], '2.24.0-alpine']]],
-                    ['portainer/agent', [[[2, 24, 0], '2.24.0-alpine']]],
+                    [['portainer_version: ', '2.21.0'], [[[2, 24, 0], '2.24.0']]],
+                    [['portainer_agent_version: ', '2.21.0'], [[[2, 24, 0], '2.24.0']]],
                 ]
             },
         )
+
+    @contextmanager
+    def copy_from(self, filename):
+        original = Path(__file__).parent / 'files' / filename
+        with tempfile.TemporaryDirectory(dir=original.parent.parent, prefix='temp') as tmpdir:
+            dest = Path(tmpdir) / original.name
+            dest.write_text(original.read_text())
+            yield dest
+
+    def test_default_update_non_dry(self):
+        with self.copy_from('docker-compose.yml') as dest:
+            self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.21-alpine']}
+            self.assertNotIn('image: nginx:1.20', dest.read_text())
+            entrypoint.main(['--file-match', 'tests/temp*/**/*.yml'])
+            self.assertIn('image: nginx:1.20', dest.read_text())
+
+    def test_custom_field_non_dry(self):
+        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['2.24.0-alpine', '2.25.0']}
+        extra = {
+            'portainer_version': 'portainer/portainer-ce:?-alpine',
+            'portainer_agent_version': 'portainer/agent:?-alpine',
+        }
+        with self.copy_from('ansible_playbook.yml') as dest:
+            entrypoint.main(['--file-match', 'tests/temp*/**/*book.yml', '--extra', json.dumps(extra)])
+            self.assertRegexpMatches(dest.read_text(), r'\s+portainer_version: 2\.24\.0\b')

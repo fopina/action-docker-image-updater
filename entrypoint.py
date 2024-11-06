@@ -43,7 +43,9 @@ class CLI:
         self._token = token
         self._repo = repo
         self._glob = file_match
-        self._extra_fields = {k: (re.compile(rf"""\s*{k}:\s*(.*)"""), v) for k, v in (extra_fields or {}).items()}
+        self._extra_fields: dict[str, tuple[re.Pattern, str]] = {
+            k: (re.compile(rf"""\s*({k}\s*:\s*)(.*)"""), v) for k, v in (extra_fields or {}).items()
+        }
         self._re_image = re.compile(r"""\s*image: (&[a-z\-]+ )?["']?(.+?):(.+)["']?""")
         self._re_tag = re.compile(r'(.*?)(\d+([\.-]\d+)*)(.*)')
         # solve container issue
@@ -64,17 +66,20 @@ class CLI:
     def version_tuple(self, version_string):
         return tuple(map(int, version_string.replace('-', '.').split('.')))
 
-    def proc_stack(self, stack):
+    def proc_stack(self, stack: Path):
         s = stack.read_text()
         r = []
-        for field, (field_re, field_template) in self._extra_fields.items():
-            for m in field_re.findall(s):
-                full_image = field_template.replace('?', m)
-                image, tag = full_image.split(':', 1)
-                updates = self.check_image(stack, image, tag)
+        for _, (field_re, field_template) in self._extra_fields.items():
+            for raw_field, m in field_re.findall(s):
+                image = field_template.replace('?', m).split(':', 1)
+                updates = self.check_image(stack, image[0], image[1])
                 if updates is None:
                     continue
-                r.append((image, updates))
+                # fix updates for this "custom field", strip template-added text to tag
+                tag_template = field_template.split(':')[1].split('?', 1)
+                p1, p2 = len(tag_template[0]), len(tag_template[1])
+                filtered_updates = [(x1, x2[p1:-p2]) for x1, x2 in updates]
+                r.append(((raw_field, m), filtered_updates))
 
         for image in self._re_image.findall(s):
             # trim anchor
@@ -152,7 +157,11 @@ class CLI:
             if not newer_tags:
                 continue
             newest = newer_tags[-1]
-            s = s.replace(f'{original[0]}:{original[1]}', f'{original[0]}:{newest[1]}')
+            if ':' in original[0]:
+                # because custom_fields brings the ":" already
+                s = s.replace(f'{original[0]}{original[1]}', f'{original[0]}{newest[1]}')
+            else:
+                s = s.replace(f'{original[0]}:{original[1]}', f'{original[0]}:{newest[1]}')
             cksum.append(f'* bump {original[0]} from {original[1]} to {newest[1]}')
         if not cksum:
             return False, None
