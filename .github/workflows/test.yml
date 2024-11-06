@@ -13,12 +13,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
+      - name: 
         run: |
           pip install pipenv
           pipenv requirements --dev > reqs.txt
@@ -45,19 +40,32 @@ jobs:
         run: |
           sed -i 's/^  image\:.*/  image\: Dockerfile/g' action.yml  
 
-      - name: Integration test
+      - name: Integration test 1
         uses: ./
         id: it1
         with:
           token: "${{ github.token }}"
           dry: 'true'
 
-      - name: Integration test
+      - name: Integration test 2
         uses: ./
         id: it2
         with:
           token: "${{ github.token }}"
           file-match: '**/*.yml'
+          dry: 'true'
+      
+      - name: Integration test 3
+        uses: ./
+        id: it3
+        with:
+          token: "${{ github.token }}"
+          file-match: '**/*.yml'
+          extra-fields: >
+            {
+              "portainer_version": "portainer/portainer-ce:?-alpine",
+              "portainer_agent_version": "portainer/agent:?-alpine"
+            }
           dry: 'true'
 
       - name: print out plan

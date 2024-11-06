@@ -1,3 +1,7 @@
 services:
   nginx:
-    image: nginx:1.19
+    image: nginx:1.19-alpine
+  
+  # autoupdater: disable redis
+  other_nginx:
+    image: redis:1.19

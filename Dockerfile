@@ -10,6 +10,21 @@ RUN pip install pipenv
 RUN pipenv requirements > requirements.txt
 RUN pip install --target=/app -r requirements.txt
 
+# --- tests
+
+FROM builder AS tests
+
+RUN pipenv requirements --dev > requirements.txt
+RUN pip install --target=/app -r requirements.txt
+
+ENV PYTHONPATH=/app
+WORKDIR /actual
+COPY entrypoint.py /actual/entrypoint.py
+COPY tests /actual/tests
+COPY pyproject.toml /actual/
+
+ENTRYPOINT [ "python", "-m", "pytest", "--cov" ]
+
 # --- main
 
 FROM base
