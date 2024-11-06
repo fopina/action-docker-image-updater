@@ -1,6 +1,7 @@
 import json
 import os
 import unittest
+from unittest import mock
 
 
 class TestIntegration(unittest.TestCase):
@@ -19,6 +20,20 @@ class TestIntegration(unittest.TestCase):
         return json.loads(data[step_id]['outputs']['plan'])
 
     def test_it1(self):
-        # FIXME: do some test?
         plan = self.load_plan('it1')
-        self.assertEqual(plan, '')
+        self.assertEqual(
+            plan,
+            {
+                'tests/files/docker-compose.yml': [[['nginx', '1.19'], mock.Any]],
+            },
+        )
+
+    def test_it2(self):
+        plan = self.load_plan('it2')
+        self.assertEqual(
+            plan,
+            {
+                'tests/files/other.yml': [[['nginx', '1.19'], mock.Any]],
+                'tests/files/docker-compose.yml': [[['nginx', '1.19'], mock.Any]],
+            },
+        )
