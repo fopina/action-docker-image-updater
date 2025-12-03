@@ -22,8 +22,8 @@ See [action.yml](action.yml)
 # Scenarios
 
 - [Check docker-compose for image updates](#check-docker-compose-for-image-updates)
-- [Check any yaml file for image updates][#check-any-yaml-file-for-image-updates]
-- [Check any yaml file for image updates][#check-custom-fields-for-mapped-image-updates]
+- [Check any yaml file for image updates](#check-any-yaml-file-for-image-updates)
+- [Check any yaml file for image updates](#check-custom-fields-for-mapped-image-updates)
 - [Dry run](#dry-run)
 
 ## Check docker-compose for image updates
