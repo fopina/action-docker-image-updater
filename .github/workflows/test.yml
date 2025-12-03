@@ -13,7 +13,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: 
+      - name: Setup venv
         run: |
           pip install pipenv
           pipenv requirements --dev > reqs.txt
