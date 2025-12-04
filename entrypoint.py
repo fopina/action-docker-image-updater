@@ -259,7 +259,9 @@ class CLI:
                     s = s.replace(f'{original[0]}{original[1]}', f'{original[0]}{newest[1]}')
                 else:
                     s = s.replace(f'{original[0]}:{original[1]}', f'{original[0]}:{newest[1]}')
-            cksum.append(f'* bump {original[0]} from {original[1]} to {newest[1]}')
+            cksum.append(
+                f'* bump {_default_json_serializer(original[0])} from {_default_json_serializer(original[1])} to {newest[1]}'
+            )
         if not cksum:
             return False, None
         cksumhex = hashlib.sha1(''.join(cksum).encode()).hexdigest()
