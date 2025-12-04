@@ -47,8 +47,19 @@ class Test(unittest.TestCase):
         plan = self.load_plan()
         self.assertIsNone(plan)
         # Still makes API calls to check available tags, even when no updates are found
-        self.req_mock.get.assert_called()
         self.assertEqual(self.req_mock.get.call_count, 2)  # auth + tags
+        self.req_mock.get.assert_has_calls(
+            [
+                mock.call(
+                    'https://auth.docker.io/token',
+                    params={'service': 'registry.docker.io', 'scope': 'repository:library/nginx:pull'},
+                ),
+                mock.call(
+                    'https://index.docker.io/v2/library/nginx/tags/list', headers={'Authorization': 'Bearer 123'}
+                ),
+            ],
+            any_order=True,
+        )
 
     def test_default_update(self):
         self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.21-alpine']}
