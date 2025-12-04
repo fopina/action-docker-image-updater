@@ -183,4 +183,4 @@ class Test(unittest.TestCase):
                     'deployment.repository',
                 ]
             )
-            self.assertRegex((dest / 'values.yaml').read_text(), r'\s+tag: v3\.99\.0\b')
+            self.assertRegex((dest / 'values.yaml').read_text(), r'\s+repository: traefik:v3\.99\.0\b')

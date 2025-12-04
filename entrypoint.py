@@ -252,11 +252,18 @@ class CLI:
             newest = newer_tags[-1]
             if isinstance(original[0], jsonpath_ng.DatumInContext):
                 # keep this simple for now - might use jsonpath_ng and yaml parsing in the future
-                s = re.sub(
-                    rf'({re.escape(original[1].path.fields[0])}.*?:.*?){re.escape(original[1].value)}',
-                    rf'\g<1>{newest[1]}',
-                    s,
-                )
+                if isinstance(original[1], jsonpath_ng.DatumInContext):
+                    # Both image name and tag are from separate JSON paths
+                    s = re.sub(
+                        rf'({re.escape(original[1].path.fields[0])}.*?:.*?){re.escape(original[1].value)}',
+                        rf'\g<1>{newest[1]}',
+                        s,
+                    )
+                else:
+                    # Image name and tag are in the same JSON path field (tag was extracted by splitting on ':')
+                    # Replace the entire value with the same name but new tag
+                    name = original[0].value.split(':', 1)[0]
+                    s = s.replace(original[0].value, f'{name}:{newest[1]}')
             else:
                 if ':' in original[0]:
                     # because custom_fields brings the ":" already
