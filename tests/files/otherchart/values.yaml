@@ -1,0 +1,2 @@
+deployment:
+  repository: traefik:v3.5.3

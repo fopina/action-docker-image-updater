@@ -291,9 +291,9 @@ class CLI:
     def run(self):
         self.setup_git()
         for stack in self.repo_dir.glob(self._glob):
+            print(f'Checking {stack.relative_to(self.repo_dir)}')
             r = self.proc_stack(stack)
             if r:
-                print(f'Updating {stack.relative_to(self.repo_dir)}')
                 updated, branch = self.update_stack(stack, r)
                 if updated:
                     print(f'::warning file={stack.relative_to(self.repo_dir)}::Bumped')
