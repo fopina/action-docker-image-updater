@@ -24,6 +24,7 @@ See [action.yml](action.yml)
 - [Check docker-compose for image updates](#check-docker-compose-for-image-updates)
 - [Check any yaml file for image updates](#check-any-yaml-file-for-image-updates)
 - [Check any yaml file for image updates](#check-custom-fields-for-mapped-image-updates)
+- [Check Helm values or other YAML files with JSONPath](#check-helm-values-or-other-yaml-files-with-jsonpath)
 - [Dry run](#dry-run)
 
 ## Check docker-compose for image updates
@@ -86,6 +87,34 @@ permissions:
         "portainer_version": "portainer/portainer-ce:?-alpine",
         "portainer_agent_version": "portainer/agent:?-alpine"
       }
+```
+
+## Check Helm values or other YAML files with JSONPath
+
+This will look for files matching the pattern and use JSONPath expressions to find image names and tags in YAML files.  
+This is particularly useful for Helm values files where the image information isn't in the standard `image: imagename:tag` format.
+
+For example, to check a Helm values.yaml file with this structure:
+```yaml
+# some path like: mytraefik-chart/values.yaml
+image:
+  repository: traefik
+  tag: v3.5.3
+```
+
+For each stack found having updates, a PR is created.
+
+```yaml
+permissions:
+  contents: write
+  pull-requests: write
+
+- uses: fopina/action-docker-image-updater@v1
+  with:
+    token: "${{ github.token }}"
+    file-match: '**/values*.y*ml'
+    image-name-jsonpath: 'image.repository'
+    image-tag-jsonpath: 'image.tag'
 ```
 
 ## Dry run
