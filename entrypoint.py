@@ -296,34 +296,46 @@ class CLI:
                     subprocess.check_call(['git', 'push', 'origin', f':{existing_branch}'])
 
     def run(self):
+        _exit = 0
         self.setup_git()
         for stack in self.repo_dir.glob(self._glob):
-            print(f'Checking {stack.relative_to(self.repo_dir)}')
-            r = self.proc_stack(stack)
-            if r:
-                updated, branch = self.update_stack(stack, r)
-                if updated:
-                    print(f'::warning file={stack.relative_to(self.repo_dir)}::Bumped')
-                if branch:
-                    self.cleanup_branches(stack, keep=[branch])
+            try:
+                print(f'Checking {stack.relative_to(self.repo_dir)}')
+                r = self.proc_stack(stack)
+                if r:
+                    updated, branch = self.update_stack(stack, r)
+                    if updated:
+                        print(f'::warning file={stack.relative_to(self.repo_dir)}::Bumped')
+                    if branch:
+                        self.cleanup_branches(stack, keep=[branch])
+            except Exception as stack_exc:
+                _exit = 1
+                print(f'::error file={stack.relative_to(self.repo_dir)},title=File skipped::{stack_exc}')
+        return _exit
 
     def dry_run(self):
+        _exit = 0
         plan = {}
         for stack in self.repo_dir.glob(self._glob):
-            r = self.proc_stack(stack)
-            done_header = False
-            any_update = False
-            for image, nt in r:
-                if nt:
-                    any_update = True
-                    if not done_header:
-                        print(f'== {stack.name}')
-                        done_header = True
-                    print(list(map(_default_json_serializer, image)), nt)
-            if any_update:
-                plan[str(stack.relative_to(self.repo_dir))] = r
+            try:
+                r = self.proc_stack(stack)
+                done_header = False
+                any_update = False
+                for image, nt in r:
+                    if nt:
+                        any_update = True
+                        if not done_header:
+                            print(f'== {stack.name}')
+                            done_header = True
+                        print(list(map(_default_json_serializer, image)), nt)
+                if any_update:
+                    plan[str(stack.relative_to(self.repo_dir))] = r
+            except Exception as stack_exc:
+                _exit = 1
+                print(f'::error file={stack.relative_to(self.repo_dir)},title=Exception::{stack_exc}')
         if plan:
             set_github_action_output('plan', json.dumps(plan, default=_default_json_serializer))
+        return _exit
 
     def _stack_branch_prefix(self, stack: Path):
         stem = stack.stem
@@ -389,10 +401,10 @@ def main(argv=None):
     if os.getenv('INPUT_DRY', 'false') == 'true':
         args.dry = True
     if args.dry:
-        c.dry_run()
+        return c.dry_run()
     else:
-        c.run()
+        return c.run()
 
 
 if __name__ == '__main__':
-    main()
+    exit(main() or 0)
