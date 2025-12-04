@@ -289,6 +289,7 @@ class CLI:
         for stack in self.repo_dir.glob(self._glob):
             r = self.proc_stack(stack)
             if r:
+                print(f'Updating {stack.relative_to(self.repo_dir)}')
                 updated, branch = self.update_stack(stack, r)
                 if updated:
                     print(f'::warning file={stack.relative_to(self.repo_dir)}::Bumped')
