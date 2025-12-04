@@ -265,7 +265,7 @@ class CLI:
         if not cksum:
             return False, None
         cksumhex = hashlib.sha1(''.join(cksum).encode()).hexdigest()
-        branch = f'autoupdater/{stack.stem}_{cksumhex}'
+        branch = f'{self._stack_branch_prefix(stack)}{cksumhex}'
         if f'{branch}\n' in self.branches:
             print(f'Branch {branch} already exists, skipping')
             return False, branch
@@ -275,7 +275,7 @@ class CLI:
         return True, branch
 
     def cleanup_branches(self, stack, keep=[]):
-        prefix = f'autoupdater/{stack.stem}_'
+        prefix = self._stack_branch_prefix(stack)
         elen = len(prefix) + 40
         for b in self.branches.splitlines():
             existing_branch = b.strip().split('/', 2)[-1]
@@ -312,6 +312,14 @@ class CLI:
                 plan[str(stack.relative_to(self.repo_dir))] = r
         if plan:
             set_github_action_output('plan', json.dumps(plan, default=_default_json_serializer))
+
+    def _stack_branch_prefix(self, stack: Path):
+        stem = stack.stem
+        # If stack is not directly under repo root, also use parent dir
+        relative_path = stack.relative_to(self.repo_dir)
+        if relative_path.parent != Path('.'):
+            stem = f'{relative_path.parent.name}_{stem}'
+        return f'autoupdater/{stem}_'
 
 
 def _default_json_serializer(object):
