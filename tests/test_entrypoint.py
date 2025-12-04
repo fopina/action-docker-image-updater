@@ -82,6 +82,30 @@ class Test(unittest.TestCase):
             },
         )
 
+    def test_jsonpath(self):
+        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['v3.99.0-alpine', 'v3.99.0']}
+        entrypoint.main(
+            [
+                '--dry',
+                '--file-match',
+                '**/values*.y*ml',
+                '--image-name-jsonpath',
+                'image.repository',
+                '--image-tag-jsonpath',
+                'image.tag',
+            ]
+        )
+        plan = self.load_plan()
+        self.assertEqual(
+            plan,
+            {
+                'tests/files/ansible_playbook.yml': [
+                    [['portainer_version: ', '2.21.0'], [[[2, 24, 0], '2.24.0']]],
+                    [['portainer_agent_version: ', '2.21.0'], [[[2, 24, 0], '2.24.0']]],
+                ]
+            },
+        )
+
     @contextmanager
     def copy_from(self, filename):
         original = Path(__file__).parent / 'files' / filename

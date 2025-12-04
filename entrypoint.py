@@ -8,7 +8,11 @@ import subprocess
 from functools import cached_property, lru_cache
 from pathlib import Path
 
+import jsonpath_ng
 import requests
+from ruamel.yaml import YAML
+
+yaml = YAML()
 
 
 # Set the output value by writing to the outputs in the Environment File, mimicking the behavior defined here:
@@ -39,7 +43,7 @@ def get_tags(repository):
 
 
 class CLI:
-    def __init__(self, token, repo, file_match, extra_fields, image_jsonpath, tag_jsonpath, repository_jsonpath):
+    def __init__(self, token, repo, file_match, extra_fields, image_jsonpath, tag_jsonpath, registry_jsonpath):
         self._token = token
         self._repo = repo
         self._glob = file_match
@@ -50,7 +54,7 @@ class CLI:
         self._re_tag = re.compile(r'(.*?)(\d+([\.-]\d+)*)(.*)')
         self._image_jsonpath = image_jsonpath
         self._tag_jsonpath = tag_jsonpath
-        self._repository_jsonpath = repository_jsonpath
+        self._registry_jsonpath = registry_jsonpath
         # solve container issue
         if 'GITHUB_OUTPUT' in os.environ:
             subprocess.check_call(['git', 'config', '--global', '--add', 'safe.directory', '/github/workspace'])
@@ -111,19 +115,44 @@ class CLI:
             return []
         r = []
         s = stack.read_text()
-        for image in self._re_image.findall(s):
-            # trim anchor
-            image = image[1:]
+        code = yaml.load(s)
+        image_jsonpath_expr = jsonpath_ng.parse(self._image_jsonpath)
+        matches = image_jsonpath_expr.find(code)
+        if not matches:
+            return r
+        if len(matches) > 1 and (self._tag_jsonpath or self._registry_jsonpath):
+            print(
+                f'::notice file={stack.relative_to(self.repo_dir)}::Too many matches - with different JSON paths for name and tag, only one match expected to be able to pair with tags (new feature anyone?)'
+            )
+            return r
 
-            disabled = re.findall(r'# autoupdater: disable\s+[^\n]*' + image[0], s, re.DOTALL)
-            if disabled:
-                print(f'::notice file={stack.relative_to(self.repo_dir)}::Image {image[0]} with autoupdate disabled')
-                continue
+        if self._tag_jsonpath:
+            tag_jsonpath_expr = jsonpath_ng.parse(self._tag_jsonpath)
+            tag_matches = tag_jsonpath_expr.find(code)
+            if len(tag_matches) != 1:
+                print(
+                    f'::notice file={stack.relative_to(self.repo_dir)}::Using separate JSON path for tag, there must be ONE and only ONE match'
+                )
+                return r
+            tag_match = tag_matches[0]
+        else:
+            tag_match = None
 
-            updates = self.check_image(stack, image[0], image[1])
+        # TODO handle registry once more than docker.io is supported
+
+        for match in matches:
+            if tag_match is None:
+                if ':' not in match.value:
+                    print(f'::notice file={stack.relative_to(self.repo_dir)}::{match.value} does not contain any tag')
+                    continue
+                name, tag = match.value.split(':', 1)
+            else:
+                name = match.value
+                tag = tag_match.value
+            updates = self.check_image(stack, name, tag)
             if updates is None:
                 continue
-            r.append((image, updates))
+            r.append(((str(match), str(tag_match or tag)), updates))
         return r
 
     def proc_stack(self, stack: Path):
@@ -210,7 +239,7 @@ class CLI:
         )
         r.raise_for_status()
 
-    def update_stack(self, stack, data):
+    def update_stack(self, stack: Path, data):
         s = stack.read_text()
         cksum = []
         for original, newer_tags in data:
@@ -294,14 +323,14 @@ def build_parser():
     p.add_argument(
         '--image-name-jsonpath',
         type=str,
-        help='JSONPath to image name. If this is specified and --image-tag-jsonpath is not, tag is expected in this field, format IMAGE:TAG. Same for --image-repository-jsonpath, if not specified it is assumed to be in this field, format REPOSITORY/IMAGE:TAG and the absence of it defaults to docker.io.',
+        help='JSONPath to image name. If this is specified and --image-tag-jsonpath is not, tag is expected in this field, format IMAGE:TAG. Same for --image-registry-jsonpath, if not specified it is assumed to be in this field, format REPOSITORY/IMAGE:TAG and the absence of it defaults to docker.io.',
         default=os.getenv('INPUT_IMAGE-NAME-JSONPATH'),
     )
     p.add_argument(
-        '--image-repository-jsonpath',
+        '--image-registry-jsonpath',
         type=str,
-        help='JSONPath to image repository hostname.',
-        default=os.getenv('INPUT_IMAGE-REPOSITORY-JSONPATH'),
+        help='JSONPath to image registry.',
+        default=os.getenv('INPUT_IMAGE-REGISTRY-JSONPATH'),
     )
     p.add_argument(
         '--image-tag-jsonpath', type=str, help='JSONPath to image tag', default=os.getenv('INPUT_IMAGE-TAG-JSONPATH')
@@ -312,7 +341,15 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     extra_fields = None if not args.extra_fields else json.loads(args.extra_fields)
-    c = CLI(args.token, args.repo, args.file_match, extra_fields, args.image_name_jsonpath, args.image_tag_jsonpath, args.image_repository_jsonpath)
+    c = CLI(
+        args.token,
+        args.repo,
+        args.file_match,
+        extra_fields,
+        args.image_name_jsonpath,
+        args.image_tag_jsonpath,
+        args.image_registry_jsonpath,
+    )
     if os.getenv('INPUT_DRY', 'false') == 'true':
         args.dry = True
     if args.dry:
