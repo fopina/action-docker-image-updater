@@ -106,6 +106,27 @@ class Test(unittest.TestCase):
             },
         )
 
+    def test_jsonpath_tagged_image_name(self):
+        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['v3.99.0-alpine', 'v3.99.0']}
+        entrypoint.main(
+            [
+                '--dry',
+                '--file-match',
+                '**/values*.y*ml',
+                '--image-name-jsonpath',
+                'deployment.repository',
+            ]
+        )
+        plan = self.load_plan()
+        self.assertEqual(
+            plan,
+            {
+                'tests/files/otherchart/values.yaml': [
+                    [['traefik:v3.5.3', 'v3.5.3'], [[[3, 99, 0], 'v3.99.0']]],
+                ]
+            },
+        )
+
     @contextmanager
     def copy_from(self, path):
         original = Path(__file__).parent / 'files' / path
@@ -150,3 +171,16 @@ class Test(unittest.TestCase):
                 ]
             )
             self.assertRegex((dest / 'values.yaml').read_text(), r'\s+tag: v3\.99\.0\b')
+
+    def test_jsonpath_tagged_image_name_non_dry(self):
+        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['v3.99.0-alpine', 'v3.99.0']}
+        with self.copy_from('otherchart') as dest:
+            entrypoint.main(
+                [
+                    '--file-match',
+                    'tests/temp*/**/values*.y*ml',
+                    '--image-name-jsonpath',
+                    'deployment.repository',
+                ]
+            )
+            self.assertRegex((dest / 'values.yaml').read_text(), r'\s+repository: traefik:v3\.99\.0\b')
