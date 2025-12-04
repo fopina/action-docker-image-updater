@@ -216,7 +216,7 @@ class CLI:
 
 
 def build_parser():
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('--token', help='Github token', default=os.getenv('INPUT_TOKEN'))
     p.add_argument(
         '--dry', action='store_true', help='Dry run to only check which images would be updated - for testing'
@@ -225,7 +225,7 @@ def build_parser():
     p.add_argument(
         '--file-match',
         type=str,
-        default=os.getenv('INPUT_FILE-MATCH', '**/docker-compose.y*ml'),
+        default=os.getenv('INPUT_FILE-MATCH', '**/docker-compose*.y*ml'),
         help='Glob to match compose files',
     )
     p.add_argument(
