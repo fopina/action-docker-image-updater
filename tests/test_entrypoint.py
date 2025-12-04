@@ -41,13 +41,46 @@ class Test(unittest.TestCase):
         self.assertEqual(data[:5], 'plan=')
         return json.loads(data[5:])
 
+    def test_get_tags_need_auth(self):
+        # Test the case where get_tags handles 401 and authentication
+        responses = [
+            mock.Mock(
+                status_code=401,
+                headers={
+                    'WWW-Authenticate': 'Bearer realm="https://auth.example.com/token",service="registry.example.com",scope="repository:test:image:pull"'
+                },
+            ),
+            mock.Mock(status_code=200, json=mock.Mock(return_value={'token': 'auth_token'})),
+            mock.Mock(
+                status_code=200,
+                headers={'Link': 'rel="next" </v2/whatever/tags/list?n=x>'},
+                json=mock.Mock(return_value={'tags': ['1.19']}),
+            ),
+            mock.Mock(status_code=200, headers={}, json=mock.Mock(return_value={'tags': ['1.20']})),
+        ]
+        self.req_mock.get.side_effect = responses
+
+        tags = entrypoint.get_tags('ghcr.io', 'test/image')
+        self.assertEqual(tags, ['1.19', '1.20'])
+        self.assertEqual(self.req_mock.get.call_count, 4)
+        self.req_mock.get.assert_has_calls(
+            [
+                mock.call('https://ghcr.io/v2/test/image/tags/list'),
+                mock.call(
+                    'https://auth.example.com/token',
+                    params={'service': 'registry.example.com', 'scope': 'repository:test:image:pull'},
+                ),
+                mock.call('https://ghcr.io/v2/test/image/tags/list', headers={'Authorization': 'Bearer auth_token'}),
+                mock.call('https://ghcr.io/v2/whatever/tags/list?n=x', headers={'Authorization': 'Bearer auth_token'}),
+            ]
+        )
+
     def test_default_no_update(self):
         self.req_mock.get.return_value.json.return_value = {'tags': ['1.19']}
         entrypoint.main(['--dry'])
         plan = self.load_plan()
         self.assertIsNone(plan)
-        # Still makes API calls to check available tags, even when no updates are found
-        self.assertEqual(self.req_mock.get.call_count, 1)  # auth + tags
+        self.assertEqual(self.req_mock.get.call_count, 1)
         self.req_mock.get.assert_called_once_with('https://index.docker.io/v2/library/nginx/tags/list')
 
     def test_default_update(self):
