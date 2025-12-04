@@ -216,8 +216,12 @@ class CLI:
         newer_tags.sort()
         return newer_tags
 
-    def create_branch_and_mr(self, stack, branch, body=None):
+    def create_branch_and_mr(self, stack: Path, branch, body=None):
         title = f'Update images in {stack.stem}'
+        # If stack is not directly under repo root, append parent dir in parentheses
+        relative_path = stack.relative_to(self.repo_dir)
+        if relative_path.parent != Path('.'):
+            title += f' ({relative_path.parent.name})'
         subprocess.check_call(['git', 'checkout', '-b', branch])
         subprocess.check_call(['git', 'commit', '-a', '-m', title])
         subprocess.check_call(['git', 'push', 'origin', branch])
