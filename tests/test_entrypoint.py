@@ -217,6 +217,26 @@ class Test(unittest.TestCase):
             entrypoint.main(['--file-match', 'tests/temp*/**/*.yml'])
             self.assertIn('image: nginx:1.20', dest.read_text())
             self.assertEqual(self.req_mock.get.call_count, 1)
+            self.req_mock.get.assert_has_calls(
+                [
+                    mock.call('https://index.docker.io/v2/library/nginx/tags/list'),
+                ],
+                any_order=True,
+            )
+
+    def test_default_update_non_dockerio_non_dry(self):
+        with self.copy_from('on-ghcr.yml') as dest:
+            self.req_mock.get.return_value.json.return_value = {'tags': ['v1.7.0']}
+            self.assertNotIn('image: ghcr.io/gethomepage/homepage:v1.7.0', dest.read_text())
+            entrypoint.main(['--file-match', 'tests/temp*/**/*.yml'])
+            self.assertIn('image: ghcr.io/gethomepage/homepage:v1.7.0', dest.read_text())
+            self.assertEqual(self.req_mock.get.call_count, 1)
+            self.req_mock.get.assert_has_calls(
+                [
+                    mock.call('https://ghcr.io/v2/gethomepage/homepage/tags/list'),
+                ],
+                any_order=True,
+            )
 
     def test_custom_field_non_dry(self):
         self.req_mock.get.return_value.json.return_value = {'tags': ['2.24.0-alpine', '2.25.0']}
