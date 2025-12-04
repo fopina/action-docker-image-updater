@@ -1,0 +1,4 @@
+services:
+  gethomepage:
+    image: ghcr.io/gethomepage/homepage:v1.6.1
+    # mage: gethomepage/homepage:v1.6.1
