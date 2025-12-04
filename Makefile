@@ -12,6 +12,9 @@ test:
 dry-sample:
 	./entrypoint.py --dry --extra-fields '{"portainer_version": "portainer/portainer-ce:?-alpine", "portainer_agent_version": "portainer/agent:?-alpine"}' --file-match '**/*.y*ml'
 
+dry-sample-jsonpath:
+	./entrypoint.py --dry --file-match '**/values*.y*ml'
+
 sample:
 	env 'INPUT_NUMBER-ONE=1' 'INPUT_NUMBER-TWO=2' ./entrypoint.py
 

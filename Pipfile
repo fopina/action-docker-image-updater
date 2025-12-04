@@ -5,6 +5,7 @@ name = "pypi"
 
 [packages]
 requests = "<3,>=2"
+jsonpath-ng = "*"
 
 [dev-packages]
 ruff = "*"
