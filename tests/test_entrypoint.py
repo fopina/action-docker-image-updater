@@ -158,13 +158,53 @@ class Test(unittest.TestCase):
             {
                 'tests/files/somechart/values.yaml': [
                     [['traefik', 'v3.5.3'], [[[3, 99, 0], 'v3.99.0']]],
-                ]
+                ],
+                'tests/files/otherchart/values-other.yaml': [
+                    [['gethomepage/homepage', 'v1.6.1'], [[[3, 99, 0], 'v3.99.0']]],
+                ],
             },
         )
-        self.assertEqual(self.req_mock.get.call_count, 1)
+        self.assertEqual(self.req_mock.get.call_count, 2)
         self.req_mock.get.assert_has_calls(
             [
                 mock.call('https://index.docker.io/v2/library/traefik/tags/list'),
+                mock.call('https://index.docker.io/v2/gethomepage/homepage/tags/list'),
+            ],
+            any_order=True,
+        )
+
+    def test_jsonpath_registry(self):
+        self.req_mock.get.return_value.json.return_value = {'tags': ['v3.99.0-alpine', 'v3.99.0']}
+        entrypoint.main(
+            [
+                '--dry',
+                '--file-match',
+                '**/values*.y*ml',
+                '--image-name-jsonpath',
+                'image.repository',
+                '--image-tag-jsonpath',
+                'image.tag',
+                '--image-registry-jsonpath',
+                'image.registry',
+            ]
+        )
+        plan = self.load_plan()
+        self.assertEqual(
+            plan,
+            {
+                'tests/files/somechart/values.yaml': [
+                    [['traefik', 'v3.5.3'], [[[3, 99, 0], 'v3.99.0']]],
+                ],
+                'tests/files/otherchart/values-other.yaml': [
+                    [['gethomepage/homepage', 'v1.6.1'], [[[3, 99, 0], 'v3.99.0']]],
+                ],
+            },
+        )
+        self.assertEqual(self.req_mock.get.call_count, 2)
+        self.req_mock.get.assert_has_calls(
+            [
+                mock.call('https://index.docker.io/v2/library/traefik/tags/list'),
+                mock.call('https://ghcr.io/v2/gethomepage/homepage/tags/list'),
             ],
             any_order=True,
         )

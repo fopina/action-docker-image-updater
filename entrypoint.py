@@ -163,6 +163,7 @@ class CLI:
             )
             return r
 
+        tag_match = None
         if self._tag_jsonpath:
             tag_jsonpath_expr = jsonpath_ng.parse(self._tag_jsonpath)
             tag_matches = tag_jsonpath_expr.find(code)
@@ -172,10 +173,18 @@ class CLI:
                 )
                 return r
             tag_match = tag_matches[0]
-        else:
-            tag_match = None
 
-        # TODO handle registry once more than docker.io is supported
+        registry_match = ''
+        if self._registry_jsonpath:
+            registry_jsonpath_expr = jsonpath_ng.parse(self._registry_jsonpath)
+            registry_matches = registry_jsonpath_expr.find(code)
+            if len(registry_matches) > 1:
+                print(
+                    f'::notice file={stack.relative_to(self.repo_dir)}::Using separate JSON path for registry, there must be ONE and only ONE match'
+                )
+                return r
+            if registry_matches:
+                registry_match = f'{registry_matches[0].value}/'
 
         for match in matches:
             if tag_match is None:
@@ -186,6 +195,7 @@ class CLI:
             else:
                 name = match.value
                 tag = tag_match.value
+            name = f'{registry_match}{name}'
             updates = self.check_image(stack, name, tag)
             if updates is None:
                 continue

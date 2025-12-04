@@ -1,0 +1,4 @@
+image:
+  registry: ghcr.io
+  repository: gethomepage/homepage
+  tag: v1.6.1
