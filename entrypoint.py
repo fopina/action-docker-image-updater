@@ -246,11 +246,15 @@ class CLI:
             if not newer_tags:
                 continue
             newest = newer_tags[-1]
-            if ':' in original[0]:
-                # because custom_fields brings the ":" already
-                s = s.replace(f'{original[0]}{original[1]}', f'{original[0]}{newest[1]}')
+            if isinstance(original[0], jsonpath_ng.DatumInContext):
+                # keep this simple for now - might use jsonpath_ng and yaml parsing in the future
+                s = re.sub(rf'({original[1].path.fields[0]}.*?:.*?){original[1].value}', rf'\1{newest[1]}', s)
             else:
-                s = s.replace(f'{original[0]}:{original[1]}', f'{original[0]}:{newest[1]}')
+                if ':' in original[0]:
+                    # because custom_fields brings the ":" already
+                    s = s.replace(f'{original[0]}{original[1]}', f'{original[0]}{newest[1]}')
+                else:
+                    s = s.replace(f'{original[0]}:{original[1]}', f'{original[0]}:{newest[1]}')
             cksum.append(f'* bump {original[0]} from {original[1]} to {newest[1]}')
         if not cksum:
             return False, None
