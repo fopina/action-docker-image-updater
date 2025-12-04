@@ -42,36 +42,24 @@ class Test(unittest.TestCase):
         return json.loads(data[5:])
 
     def test_default_no_update(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19']}
+        self.req_mock.get.return_value.json.return_value = {'tags': ['1.19']}
         entrypoint.main(['--dry'])
         plan = self.load_plan()
         self.assertIsNone(plan)
         # Still makes API calls to check available tags, even when no updates are found
-        self.assertEqual(self.req_mock.get.call_count, 2)  # auth + tags
-        self.req_mock.get.assert_has_calls(
-            [
-                mock.call(
-                    'https://auth.docker.io/token',
-                    params={'service': 'registry.docker.io', 'scope': 'repository:library/nginx:pull'},
-                ),
-                mock.call(
-                    'https://index.docker.io/v2/library/nginx/tags/list', headers={'Authorization': 'Bearer 123'}
-                ),
-            ],
-            any_order=True,
-        )
+        self.assertEqual(self.req_mock.get.call_count, 1)  # auth + tags
+        self.req_mock.get.assert_called_once_with('https://index.docker.io/v2/library/nginx/tags/list')
 
     def test_default_update(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.21-alpine']}
+        self.req_mock.get.return_value.json.return_value = {'tags': ['1.19', '1.20', '1.21-alpine']}
         entrypoint.main(['--dry'])
         plan = self.load_plan()
         self.assertEqual(plan, {'tests/files/docker-compose.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]]})
-        # Should make API calls to check nginx tags
-        self.req_mock.get.assert_called()
-        self.assertEqual(self.req_mock.get.call_count, 2)  # auth + tags
+        self.req_mock.get.assert_called_once()
+        self.req_mock.get.assert_called_once_with('https://index.docker.io/v2/library/nginx/tags/list')
 
     def test_file_match(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.20-alpine']}
+        self.req_mock.get.return_value.json.return_value = {'tags': ['1.19', '1.20', '1.20-alpine']}
         entrypoint.main(['--dry', '--file-match', '**/*.yml'])
         plan = self.load_plan()
         self.assertEqual(
@@ -81,12 +69,19 @@ class Test(unittest.TestCase):
                 'tests/files/docker-compose.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]],
             },
         )
-        # Should make API calls to check nginx tags
-        self.req_mock.get.assert_called()
-        self.assertEqual(self.req_mock.get.call_count, 4)  # auth + tags for 2 files
+        self.assertEqual(self.req_mock.get.call_count, 3)
+        self.req_mock.get.assert_has_calls(
+            [
+                # this comes from action.yaml :facepalm: - fix somehow? better "tag" regular expressions when matching `image:` ?
+                mock.call('https://index.docker.io/v2/library/docker/tags/list'),
+                mock.call('https://index.docker.io/v2/library/nginx/tags/list'),
+                mock.call('https://ghcr.io/v2/gethomepage/homepage/tags/list'),
+            ],
+            any_order=True,
+        )
 
     def test_custom_field(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['2.24.0-alpine', '2.25.0']}
+        self.req_mock.get.return_value.json.return_value = {'tags': ['2.24.0-alpine', '2.25.0']}
         extra = {
             'portainer_version': 'portainer/portainer-ce:?-alpine',
             'portainer_agent_version': 'portainer/agent:?-alpine',
@@ -102,12 +97,17 @@ class Test(unittest.TestCase):
                 ]
             },
         )
-        # Should make API calls to check portainer tags
-        self.req_mock.get.assert_called()
-        self.assertEqual(self.req_mock.get.call_count, 4)  # auth + tags for 2 files
+        self.assertEqual(self.req_mock.get.call_count, 2)
+        self.req_mock.get.assert_has_calls(
+            [
+                mock.call('https://index.docker.io/v2/portainer/agent/tags/list'),
+                mock.call('https://index.docker.io/v2/portainer/portainer-ce/tags/list'),
+            ],
+            any_order=True,
+        )
 
     def test_jsonpath(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['v3.99.0-alpine', 'v3.99.0']}
+        self.req_mock.get.return_value.json.return_value = {'tags': ['v3.99.0-alpine', 'v3.99.0']}
         entrypoint.main(
             [
                 '--dry',
@@ -128,12 +128,16 @@ class Test(unittest.TestCase):
                 ]
             },
         )
-        # Should make API calls to check traefik tags
-        self.req_mock.get.assert_called()
-        self.assertEqual(self.req_mock.get.call_count, 2)  # auth + tags
+        self.assertEqual(self.req_mock.get.call_count, 1)
+        self.req_mock.get.assert_has_calls(
+            [
+                mock.call('https://index.docker.io/v2/library/traefik/tags/list'),
+            ],
+            any_order=True,
+        )
 
     def test_jsonpath_tagged_image_name(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['v3.99.0-alpine', 'v3.99.0']}
+        self.req_mock.get.return_value.json.return_value = {'tags': ['v3.99.0-alpine', 'v3.99.0']}
         entrypoint.main(
             [
                 '--dry',
@@ -152,9 +156,13 @@ class Test(unittest.TestCase):
                 ]
             },
         )
-        # Should make API calls to check traefik tags
-        self.req_mock.get.assert_called()
-        self.assertEqual(self.req_mock.get.call_count, 2)  # auth + tags
+        self.assertEqual(self.req_mock.get.call_count, 1)
+        self.req_mock.get.assert_has_calls(
+            [
+                mock.call('https://index.docker.io/v2/library/traefik/tags/list'),
+            ],
+            any_order=True,
+        )
 
     @contextmanager
     def copy_from(self, path):
@@ -171,16 +179,14 @@ class Test(unittest.TestCase):
 
     def test_default_update_non_dry(self):
         with self.copy_from('docker-compose.yml') as dest:
-            self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['1.19', '1.20', '1.21-alpine']}
+            self.req_mock.get.return_value.json.return_value = {'tags': ['1.19', '1.20', '1.21-alpine']}
             self.assertNotIn('image: nginx:1.20', dest.read_text())
             entrypoint.main(['--file-match', 'tests/temp*/**/*.yml'])
             self.assertIn('image: nginx:1.20', dest.read_text())
-            # Should make API calls to check nginx tags during update
-            self.req_mock.get.assert_called()
-            self.assertGreaterEqual(self.req_mock.get.call_count, 2)  # auth + tags
+            self.assertEqual(self.req_mock.get.call_count, 1)
 
     def test_custom_field_non_dry(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['2.24.0-alpine', '2.25.0']}
+        self.req_mock.get.return_value.json.return_value = {'tags': ['2.24.0-alpine', '2.25.0']}
         extra = {
             'portainer_version': 'portainer/portainer-ce:?-alpine',
             'portainer_agent_version': 'portainer/agent:?-alpine',
@@ -188,12 +194,10 @@ class Test(unittest.TestCase):
         with self.copy_from('ansible_playbook.yml') as dest:
             entrypoint.main(['--file-match', 'tests/temp*/**/*book.yml', '--extra', json.dumps(extra)])
             self.assertRegex(dest.read_text(), r'\s+portainer_version: 2\.24\.0\b')
-            # Should make API calls to check portainer tags during update
-            self.req_mock.get.assert_called()
-            self.assertGreaterEqual(self.req_mock.get.call_count, 2)  # auth + tags
+            self.assertEqual(self.req_mock.get.call_count, 2)
 
     def test_jsonpath_non_dry(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['v3.99.0-alpine', 'v3.99.0']}
+        self.req_mock.get.return_value.json.return_value = {'tags': ['v3.99.0-alpine', 'v3.99.0']}
         with self.copy_from('somechart') as dest:
             entrypoint.main(
                 [
@@ -206,12 +210,10 @@ class Test(unittest.TestCase):
                 ]
             )
             self.assertRegex((dest / 'values.yaml').read_text(), r'\s+tag: v3\.99\.0\b')
-            # Should make API calls to check traefik tags during update
-            self.req_mock.get.assert_called()
-            self.assertGreaterEqual(self.req_mock.get.call_count, 2)  # auth + tags
+            self.assertEqual(self.req_mock.get.call_count, 1)
 
     def test_jsonpath_tagged_image_name_non_dry(self):
-        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['v3.99.0-alpine', 'v3.99.0']}
+        self.req_mock.get.return_value.json.return_value = {'tags': ['v3.99.0-alpine', 'v3.99.0']}
         with self.copy_from('otherchart') as dest:
             entrypoint.main(
                 [
@@ -222,6 +224,10 @@ class Test(unittest.TestCase):
                 ]
             )
             self.assertRegex((dest / 'values.yaml').read_text(), r'\s+repository: traefik:v3\.99\.0\b')
-            # Should make API calls to check traefik tags during update
-            self.req_mock.get.assert_called()
-            self.assertGreaterEqual(self.req_mock.get.call_count, 2)  # auth + tags
+            self.assertEqual(self.req_mock.get.call_count, 1)
+            self.req_mock.get.assert_has_calls(
+                [
+                    mock.call('https://index.docker.io/v2/library/traefik/tags/list'),
+                ],
+                any_order=True,
+            )
