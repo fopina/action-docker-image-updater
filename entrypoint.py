@@ -252,7 +252,11 @@ class CLI:
             newest = newer_tags[-1]
             if isinstance(original[0], jsonpath_ng.DatumInContext):
                 # keep this simple for now - might use jsonpath_ng and yaml parsing in the future
-                s = re.sub(rf'({original[1].path.fields[0]}.*?:.*?){original[1].value}', rf'\1{newest[1]}', s)
+                s = re.sub(
+                    rf'({re.escape(original[1].path.fields[0])}.*?:.*?){re.escape(original[1].value)}',
+                    rf'\g<1>{newest[1]}',
+                    s,
+                )
             else:
                 if ':' in original[0]:
                     # because custom_fields brings the ":" already
