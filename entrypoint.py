@@ -152,7 +152,7 @@ class CLI:
             updates = self.check_image(stack, name, tag)
             if updates is None:
                 continue
-            r.append(((str(match), str(tag_match or tag)), updates))
+            r.append(((match, tag_match or tag), updates))
         return r
 
     def proc_stack(self, stack: Path):
@@ -297,11 +297,17 @@ class CLI:
                     if not done_header:
                         print(f'== {stack.name}')
                         done_header = True
-                    print(image, nt)
+                    print(list(map(_default_json_serializer, image)), nt)
             if any_update:
                 plan[str(stack.relative_to(self.repo_dir))] = r
         if plan:
-            set_github_action_output('plan', json.dumps(plan))
+            set_github_action_output('plan', json.dumps(plan, default=_default_json_serializer))
+
+
+def _default_json_serializer(object):
+    if isinstance(object, jsonpath_ng.DatumInContext):
+        return object.value
+    return object
 
 
 def build_parser():

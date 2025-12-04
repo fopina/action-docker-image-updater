@@ -99,9 +99,8 @@ class Test(unittest.TestCase):
         self.assertEqual(
             plan,
             {
-                'tests/files/ansible_playbook.yml': [
-                    [['portainer_version: ', '2.21.0'], [[[2, 24, 0], '2.24.0']]],
-                    [['portainer_agent_version: ', '2.21.0'], [[[2, 24, 0], '2.24.0']]],
+                'tests/files/somechart/values.yaml': [
+                    [['traefik', 'v3.5.3'], [[[3, 99, 0], 'v3.99.0']]],
                 ]
             },
         )
