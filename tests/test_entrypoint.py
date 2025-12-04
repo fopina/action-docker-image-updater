@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -82,12 +83,40 @@ class Test(unittest.TestCase):
             },
         )
 
+    def test_jsonpath(self):
+        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['v3.99.0-alpine', 'v3.99.0']}
+        entrypoint.main(
+            [
+                '--dry',
+                '--file-match',
+                '**/values*.y*ml',
+                '--image-name-jsonpath',
+                'image.repository',
+                '--image-tag-jsonpath',
+                'image.tag',
+            ]
+        )
+        plan = self.load_plan()
+        self.assertEqual(
+            plan,
+            {
+                'tests/files/somechart/values.yaml': [
+                    [['traefik', 'v3.5.3'], [[[3, 99, 0], 'v3.99.0']]],
+                ]
+            },
+        )
+
     @contextmanager
-    def copy_from(self, filename):
-        original = Path(__file__).parent / 'files' / filename
+    def copy_from(self, path):
+        original = Path(__file__).parent / 'files' / path
         with tempfile.TemporaryDirectory(dir=original.parent.parent, prefix='temp') as tmpdir:
             dest = Path(tmpdir) / original.name
-            dest.write_text(original.read_text())
+            if original.is_file():
+                shutil.copy2(original, dest)
+            elif original.is_dir():
+                shutil.copytree(original, dest)
+            else:
+                raise ValueError(f'Path {original} is neither a file nor directory')
             yield dest
 
     def test_default_update_non_dry(self):
@@ -106,3 +135,18 @@ class Test(unittest.TestCase):
         with self.copy_from('ansible_playbook.yml') as dest:
             entrypoint.main(['--file-match', 'tests/temp*/**/*book.yml', '--extra', json.dumps(extra)])
             self.assertRegex(dest.read_text(), r'\s+portainer_version: 2\.24\.0\b')
+
+    def test_jsonpath_non_dry(self):
+        self.req_mock.get.return_value.json.return_value = {'token': '123', 'tags': ['v3.99.0-alpine', 'v3.99.0']}
+        with self.copy_from('somechart') as dest:
+            entrypoint.main(
+                [
+                    '--file-match',
+                    'tests/temp*/**/values*.y*ml',
+                    '--image-name-jsonpath',
+                    'image.repository',
+                    '--image-tag-jsonpath',
+                    'image.tag',
+                ]
+            )
+            self.assertRegex((dest / 'values.yaml').read_text(), r'\s+tag: v3\.99\.0\b')

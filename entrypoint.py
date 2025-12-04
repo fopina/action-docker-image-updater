@@ -8,7 +8,11 @@ import subprocess
 from functools import cached_property, lru_cache
 from pathlib import Path
 
+import jsonpath_ng
 import requests
+from ruamel.yaml import YAML
+
+yaml = YAML()
 
 
 # Set the output value by writing to the outputs in the Environment File, mimicking the behavior defined here:
@@ -39,7 +43,7 @@ def get_tags(repository):
 
 
 class CLI:
-    def __init__(self, token, repo, file_match, extra_fields):
+    def __init__(self, token, repo, file_match, extra_fields, image_jsonpath, tag_jsonpath, registry_jsonpath):
         self._token = token
         self._repo = repo
         self._glob = file_match
@@ -48,6 +52,9 @@ class CLI:
         }
         self._re_image = re.compile(r"""\s*image: (&[a-z\-]+ )?["']?(.+?):(.+)["']?""")
         self._re_tag = re.compile(r'(.*?)(\d+([\.-]\d+)*)(.*)')
+        self._image_jsonpath = image_jsonpath
+        self._tag_jsonpath = tag_jsonpath
+        self._registry_jsonpath = registry_jsonpath
         # solve container issue
         if 'GITHUB_OUTPUT' in os.environ:
             subprocess.check_call(['git', 'config', '--global', '--add', 'safe.directory', '/github/workspace'])
@@ -66,11 +73,14 @@ class CLI:
     def version_tuple(self, version_string):
         return tuple(map(int, version_string.replace('-', '.').split('.')))
 
-    def proc_stack(self, stack: Path):
-        s = stack.read_text()
+    def _proc_stack_extra_fields(self, stack: Path):
+        if not self._extra_fields:
+            return []
+
+        data = stack.read_text()
         r = []
         for _, (field_re, field_template) in self._extra_fields.items():
-            for raw_field, m in field_re.findall(s):
+            for raw_field, m in field_re.findall(data):
                 image = field_template.replace('?', m).split(':', 1)
                 updates = self.check_image(stack, image[0], image[1])
                 if updates is None:
@@ -80,7 +90,11 @@ class CLI:
                 p1, p2 = len(tag_template[0]), len(tag_template[1])
                 filtered_updates = [(x1, x2[p1:-p2]) for x1, x2 in updates]
                 r.append(((raw_field, m), filtered_updates))
+        return r
 
+    def _proc_stack_image(self, stack: Path):
+        s = stack.read_text()
+        r = []
         for image in self._re_image.findall(s):
             # trim anchor
             image = image[1:]
@@ -94,6 +108,81 @@ class CLI:
             if updates is None:
                 continue
             r.append((image, updates))
+        return r
+
+    def _proc_stack_jsonpath(self, stack: Path):
+        if not self._image_jsonpath:
+            return []
+        r = []
+        s = stack.read_text()
+        code = yaml.load(s)
+        image_jsonpath_expr = jsonpath_ng.parse(self._image_jsonpath)
+        matches = image_jsonpath_expr.find(code)
+        if not matches:
+            return r
+        if len(matches) > 1 and (self._tag_jsonpath or self._registry_jsonpath):
+            print(
+                f'::notice file={stack.relative_to(self.repo_dir)}::Too many matches - with different JSON paths for name and tag, only one match expected to be able to pair with tags (new feature anyone?)'
+            )
+            return r
+
+        if self._tag_jsonpath:
+            tag_jsonpath_expr = jsonpath_ng.parse(self._tag_jsonpath)
+            tag_matches = tag_jsonpath_expr.find(code)
+            if len(tag_matches) != 1:
+                print(
+                    f'::notice file={stack.relative_to(self.repo_dir)}::Using separate JSON path for tag, there must be ONE and only ONE match'
+                )
+                return r
+            tag_match = tag_matches[0]
+        else:
+            tag_match = None
+
+        # TODO handle registry once more than docker.io is supported
+
+        for match in matches:
+            if tag_match is None:
+                if ':' not in match.value:
+                    print(f'::notice file={stack.relative_to(self.repo_dir)}::{match.value} does not contain any tag')
+                    continue
+                name, tag = match.value.split(':', 1)
+            else:
+                name = match.value
+                tag = tag_match.value
+            updates = self.check_image(stack, name, tag)
+            if updates is None:
+                continue
+            r.append(((match, tag_match or tag), updates))
+        return r
+
+    def proc_stack(self, stack: Path):
+        """
+        Processes a stack file (e.g., Docker Compose YAML) to identify Docker images
+        with available updates.
+
+        This method scans the specified file for Docker image references in standard
+        "image:" fields and any configured extra fields. For each image found, it checks
+        if there are newer versions available based on semantic versioning.
+
+        Args:
+            stack (Path): Path to the stack file to process (e.g., docker-compose.yml)
+
+        Returns:
+            list[tuple[tuple[str, str], list[tuple[tuple, str]]]]: A list of update tuples.
+                Each tuple contains:
+                - (original_image, current_tag): The original image name and tag found
+                - newer_tags: List of (version_tuple, new_tag) tuples for available updates,
+                  sorted by version. Empty if no updates available.
+
+        Notes:
+            - Images with "autoupdater: disable" comments are skipped
+            - Only Docker Hub images are supported (non-hub registries are ignored)
+            - Tags must follow semantic versioning format (MAJOR.MINOR.PATCH)
+            - Returns an empty list if no images or no updates are found
+        """
+        r = self._proc_stack_extra_fields(stack)
+        r.extend(self._proc_stack_image(stack))
+        r.extend(self._proc_stack_jsonpath(stack))
         return r
 
     def check_image(self, stack, image, tag):
@@ -127,8 +216,12 @@ class CLI:
         newer_tags.sort()
         return newer_tags
 
-    def create_branch_and_mr(self, stack, branch, body=None):
+    def create_branch_and_mr(self, stack: Path, branch, body=None):
         title = f'Update images in {stack.stem}'
+        # If stack is not directly under repo root, append parent dir in parentheses
+        relative_path = stack.relative_to(self.repo_dir)
+        if relative_path.parent != Path('.'):
+            title += f' ({relative_path.parent.name})'
         subprocess.check_call(['git', 'checkout', '-b', branch])
         subprocess.check_call(['git', 'commit', '-a', '-m', title])
         subprocess.check_call(['git', 'push', 'origin', branch])
@@ -150,18 +243,22 @@ class CLI:
         )
         r.raise_for_status()
 
-    def update_stack(self, stack, data):
+    def update_stack(self, stack: Path, data):
         s = stack.read_text()
         cksum = []
         for original, newer_tags in data:
             if not newer_tags:
                 continue
             newest = newer_tags[-1]
-            if ':' in original[0]:
-                # because custom_fields brings the ":" already
-                s = s.replace(f'{original[0]}{original[1]}', f'{original[0]}{newest[1]}')
+            if isinstance(original[0], jsonpath_ng.DatumInContext):
+                # keep this simple for now - might use jsonpath_ng and yaml parsing in the future
+                s = re.sub(rf'({original[1].path.fields[0]}.*?:.*?){original[1].value}', rf'\1{newest[1]}', s)
             else:
-                s = s.replace(f'{original[0]}:{original[1]}', f'{original[0]}:{newest[1]}')
+                if ':' in original[0]:
+                    # because custom_fields brings the ":" already
+                    s = s.replace(f'{original[0]}{original[1]}', f'{original[0]}{newest[1]}')
+                else:
+                    s = s.replace(f'{original[0]}:{original[1]}', f'{original[0]}:{newest[1]}')
             cksum.append(f'* bump {original[0]} from {original[1]} to {newest[1]}')
         if not cksum:
             return False, None
@@ -208,15 +305,21 @@ class CLI:
                     if not done_header:
                         print(f'== {stack.name}')
                         done_header = True
-                    print(image, nt)
+                    print(list(map(_default_json_serializer, image)), nt)
             if any_update:
                 plan[str(stack.relative_to(self.repo_dir))] = r
         if plan:
-            set_github_action_output('plan', json.dumps(plan))
+            set_github_action_output('plan', json.dumps(plan, default=_default_json_serializer))
+
+
+def _default_json_serializer(object):
+    if isinstance(object, jsonpath_ng.DatumInContext):
+        return object.value
+    return object
 
 
 def build_parser():
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('--token', help='Github token', default=os.getenv('INPUT_TOKEN'))
     p.add_argument(
         '--dry', action='store_true', help='Dry run to only check which images would be updated - for testing'
@@ -225,11 +328,26 @@ def build_parser():
     p.add_argument(
         '--file-match',
         type=str,
-        default=os.getenv('INPUT_FILE-MATCH', '**/docker-compose.y*ml'),
+        default=os.getenv('INPUT_FILE-MATCH', '**/docker-compose*.y*ml'),
         help='Glob to match compose files',
     )
     p.add_argument(
         '--extra-fields', type=str, default=os.getenv('INPUT_EXTRA-FIELDS'), help='Extra fields to be checked - mapping'
+    )
+    p.add_argument(
+        '--image-name-jsonpath',
+        type=str,
+        help='JSONPath to image name. If this is specified and --image-tag-jsonpath is not, tag is expected in this field, format IMAGE:TAG. Same for --image-registry-jsonpath, if not specified it is assumed to be in this field, format REPOSITORY/IMAGE:TAG and the absence of it defaults to docker.io.',
+        default=os.getenv('INPUT_IMAGE-NAME-JSONPATH'),
+    )
+    p.add_argument(
+        '--image-registry-jsonpath',
+        type=str,
+        help='JSONPath to image registry.',
+        default=os.getenv('INPUT_IMAGE-REGISTRY-JSONPATH'),
+    )
+    p.add_argument(
+        '--image-tag-jsonpath', type=str, help='JSONPath to image tag', default=os.getenv('INPUT_IMAGE-TAG-JSONPATH')
     )
     return p
 
@@ -237,7 +355,15 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     extra_fields = None if not args.extra_fields else json.loads(args.extra_fields)
-    c = CLI(args.token, args.repo, args.file_match, extra_fields)
+    c = CLI(
+        args.token,
+        args.repo,
+        args.file_match,
+        extra_fields,
+        args.image_name_jsonpath,
+        args.image_tag_jsonpath,
+        args.image_registry_jsonpath,
+    )
     if os.getenv('INPUT_DRY', 'false') == 'true':
         args.dry = True
     if args.dry:
