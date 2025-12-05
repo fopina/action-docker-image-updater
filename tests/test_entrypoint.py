@@ -103,13 +103,14 @@ class Test(unittest.TestCase):
                 'tests/files/docker-compose.yml': [[['nginx', '1.19'], [[[1, 20], '1.20']]]],
             },
         )
-        self.assertEqual(self.req_mock.get.call_count, 3)
+        self.assertEqual(self.req_mock.get.call_count, 4)
         self.req_mock.get.assert_has_calls(
             [
                 # this comes from action.yaml :facepalm: - fix somehow? better "tag" regular expressions when matching `image:` ?
                 mock.call('https://index.docker.io/v2/library/docker/tags/list'),
                 mock.call('https://index.docker.io/v2/library/nginx/tags/list'),
                 mock.call('https://ghcr.io/v2/gethomepage/homepage/tags/list'),
+                mock.call('https://quay.io/v2/oauth2-proxy/oauth2-proxy/tags/list'),
             ],
             any_order=True,
         )
