@@ -288,6 +288,30 @@ class Test(unittest.TestCase):
             entrypoint.main(['--file-match', 'tests/temp*/**/*book.yml', '--extra', json.dumps(extra)])
             self.assertRegex(dest.read_text(), r'\s+portainer_version: 2\.24\.0\b')
             self.assertEqual(self.req_mock.get.call_count, 2)
+            self.req_mock.get.assert_has_calls(
+                [
+                    mock.call('https://index.docker.io/v2/portainer/portainer-ce/tags/list'),
+                    mock.call('https://index.docker.io/v2/portainer/agent/tags/list'),
+                ],
+                any_order=True,
+            )
+            self.assertEqual(self.req_mock.post.call_count, 1)
+            _p = dest.parent.name
+            self.req_mock.post.assert_has_calls(
+                [
+                    mock.call(
+                        'https://api.github.com/repos/None/pulls',
+                        headers={'Authorization': 'token xxx'},
+                        json={
+                            'title': f'Update images in ansible_playbook ({_p})',
+                            'head': f'autoupdater/{_p}_ansible_playbook_dadcecb51d162952c57c4a696f8c1a2e6c3e1189',
+                            'base': 'main',
+                            'body': '* bump portainer_version:  from 2.21.0 to 2.24.0\n* bump portainer_agent_version:  from 2.21.0 to 2.24.0',
+                        },
+                    ),
+                ],
+                any_order=True,
+            )
 
     def test_jsonpath_non_dry(self):
         self.req_mock.get.return_value.json.return_value = {'tags': ['v3.99.0-alpine', 'v3.99.0']}
@@ -303,7 +327,30 @@ class Test(unittest.TestCase):
                 ]
             )
             self.assertRegex((dest / 'values.yaml').read_text(), r'\s+tag: v3\.99\.0\b')
-            self.assertEqual(self.req_mock.get.call_count, 1)
+            self.assertEqual(self.req_mock.get.call_count, 2)
+            self.req_mock.get.assert_has_calls(
+                [
+                    mock.call('https://index.docker.io/v2/gethomepage/homepage/tags/list'),
+                    mock.call('https://index.docker.io/v2/library/traefik/tags/list'),
+                ],
+                any_order=True,
+            )
+            self.assertEqual(self.req_mock.post.call_count, 1)
+            self.req_mock.post.assert_has_calls(
+                [
+                    mock.call(
+                        'https://api.github.com/repos/None/pulls',
+                        headers={'Authorization': 'token xxx'},
+                        json={
+                            'title': 'Update images in values (somechart)',
+                            'head': 'autoupdater/somechart_values_60f121a82820c68761a5af8d681e38d0c1fe5a38',
+                            'base': 'main',
+                            'body': '* bump traefik from v3.5.3 to v3.99.0',
+                        },
+                    ),
+                ],
+                any_order=True,
+            )
 
     def test_jsonpath_tagged_image_name_non_dry(self):
         self.req_mock.get.return_value.json.return_value = {'tags': ['v3.99.0-alpine', 'v3.99.0']}
@@ -321,6 +368,22 @@ class Test(unittest.TestCase):
             self.req_mock.get.assert_has_calls(
                 [
                     mock.call('https://index.docker.io/v2/library/traefik/tags/list'),
+                ],
+                any_order=True,
+            )
+            self.assertEqual(self.req_mock.post.call_count, 1)
+            self.req_mock.post.assert_has_calls(
+                [
+                    mock.call(
+                        'https://api.github.com/repos/None/pulls',
+                        headers={'Authorization': 'token xxx'},
+                        json={
+                            'title': 'Update images in values (otherchart)',
+                            'head': 'autoupdater/otherchart_values_34bedd1929b2c08780876d3ac0098c99cf13b9e8',
+                            'base': 'main',
+                            'body': '* bump traefik:v3.5.3 from v3.5.3 to v3.99.0',
+                        },
+                    ),
                 ],
                 any_order=True,
             )
