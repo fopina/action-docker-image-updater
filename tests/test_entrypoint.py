@@ -285,7 +285,7 @@ class Test(unittest.TestCase):
             'portainer_agent_version': 'portainer/agent:?-alpine',
         }
         with self.copy_from('ansible_playbook.yml') as dest:
-            entrypoint.main(['--file-match', 'tests/temp*/**/*book.yml', '--extra', json.dumps(extra)])
+            entrypoint.main(['--file-match', 'tests/temp*/**/*book.yml', '--extra', json.dumps(extra), '--repo', 'x/x'])
             self.assertRegex(dest.read_text(), r'\s+portainer_version: 2\.24\.0\b')
             self.assertEqual(self.req_mock.get.call_count, 2)
             self.req_mock.get.assert_has_calls(
@@ -300,7 +300,7 @@ class Test(unittest.TestCase):
             self.req_mock.post.assert_has_calls(
                 [
                     mock.call(
-                        'https://api.github.com/repos/None/pulls',
+                        'https://api.github.com/repos/x/x/pulls',
                         headers={'Authorization': 'token xxx'},
                         json={
                             'title': f'Update images in ansible_playbook ({_p})',
@@ -318,6 +318,8 @@ class Test(unittest.TestCase):
         with self.copy_from('somechart') as dest:
             entrypoint.main(
                 [
+                    '--repo',
+                    'x/x',
                     '--file-match',
                     'tests/temp*/**/values*.y*ml',
                     '--image-name-jsonpath',
@@ -339,7 +341,7 @@ class Test(unittest.TestCase):
             self.req_mock.post.assert_has_calls(
                 [
                     mock.call(
-                        'https://api.github.com/repos/None/pulls',
+                        'https://api.github.com/repos/x/x/pulls',
                         headers={'Authorization': 'token xxx'},
                         json={
                             'title': 'Update images in values (somechart)',
@@ -357,6 +359,8 @@ class Test(unittest.TestCase):
         with self.copy_from('otherchart') as dest:
             entrypoint.main(
                 [
+                    '--repo',
+                    'x/x',
                     '--file-match',
                     'tests/temp*/**/values*.y*ml',
                     '--image-name-jsonpath',
@@ -375,7 +379,7 @@ class Test(unittest.TestCase):
             self.req_mock.post.assert_has_calls(
                 [
                     mock.call(
-                        'https://api.github.com/repos/None/pulls',
+                        'https://api.github.com/repos/x/x/pulls',
                         headers={'Authorization': 'token xxx'},
                         json={
                             'title': 'Update images in values (otherchart)',
