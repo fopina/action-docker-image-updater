@@ -253,7 +253,6 @@ class CLI:
         if '/' not in image:
             repository = f'library/{repository}'
         tags = get_tags(registry, repository)
-        print(tags)
         newer_tags = []
         for tag in tags:
             mp = pattern.match(tag)
