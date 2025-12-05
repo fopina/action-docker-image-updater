@@ -30,16 +30,53 @@ def set_github_action_output(output_name, output_value):
 
 
 @lru_cache
-def get_tags(repository):
-    r = requests.get(
-        'https://auth.docker.io/token',
-        params={'service': 'registry.docker.io', 'scope': f'repository:{repository}:pull'},
-    )
-    r.raise_for_status()
-    token = r.json()['token']
-    r = requests.get(f'https://index.docker.io/v2/{repository}/tags/list', headers={'Authorization': f'Bearer {token}'})
-    r.raise_for_status()
-    return r.json()['tags']
+def get_tags(registry, repository):
+    tag_url = f'https://{registry}/v2/{repository}/tags/list'
+    r = requests.get(tag_url)
+    if r.status_code == 401:
+        # Check WWW-Authenticate header for authentication realm and parameters
+        auth_header = r.headers.get('WWW-Authenticate')
+        if auth_header and auth_header.startswith('Bearer '):
+            # Parse the authentication parameters
+            auth_params = {}
+            for param in auth_header[len('Bearer ') :].split(','):
+                key, _, value = param.strip().partition('=')
+                auth_params[key] = value.strip('"')
+
+            # Get authentication token from the realm
+            auth_url = auth_params.get('realm')
+            if auth_url:
+                token_r = requests.get(
+                    auth_url, params={'service': auth_params.get('service'), 'scope': auth_params.get('scope')}
+                )
+                token_r.raise_for_status()
+                token = token_r.json()['token']
+
+                # Retry the request with authentication
+                r = requests.get(tag_url, headers={'Authorization': f'Bearer {token}'})
+            else:
+                raise ValueError(f'No authentication realm found in WWW-Authenticate header: {auth_header}')
+        else:
+            raise ValueError(f'Unsupported authentication mechanism in WWW-Authenticate header: {auth_header}')
+    elif r.status_code == 200:
+        # Some registries don't require authentication
+        pass
+    else:
+        r.raise_for_status()
+
+    tags = r.json()['tags']
+    link = r.headers.get('Link', '')
+    while 'rel="next"' in link:
+        start = link.find('<') + 1
+        end = link.find('>')
+        tag_url = link[start:end]
+        if tag_url[0] == '/':
+            tag_url = f'https://{registry}{tag_url}'
+        r = requests.get(tag_url, headers={'Authorization': f'Bearer {token}'})
+        tags.extend(r.json()['tags'])
+        link = r.headers.get('Link', '')
+
+    return tags
 
 
 class CLI:
@@ -126,6 +163,7 @@ class CLI:
             )
             return r
 
+        tag_match = None
         if self._tag_jsonpath:
             tag_jsonpath_expr = jsonpath_ng.parse(self._tag_jsonpath)
             tag_matches = tag_jsonpath_expr.find(code)
@@ -135,10 +173,18 @@ class CLI:
                 )
                 return r
             tag_match = tag_matches[0]
-        else:
-            tag_match = None
 
-        # TODO handle registry once more than docker.io is supported
+        registry_match = ''
+        if self._registry_jsonpath:
+            registry_jsonpath_expr = jsonpath_ng.parse(self._registry_jsonpath)
+            registry_matches = registry_jsonpath_expr.find(code)
+            if len(registry_matches) > 1:
+                print(
+                    f'::notice file={stack.relative_to(self.repo_dir)}::Using separate JSON path for registry, there must be ONE and only ONE match'
+                )
+                return r
+            if registry_matches:
+                registry_match = f'{registry_matches[0].value}/'
 
         for match in matches:
             if tag_match is None:
@@ -149,6 +195,7 @@ class CLI:
             else:
                 name = match.value
                 tag = tag_match.value
+            name = f'{registry_match}{name}'
             updates = self.check_image(stack, name, tag)
             if updates is None:
                 continue
@@ -176,7 +223,6 @@ class CLI:
 
         Notes:
             - Images with "autoupdater: disable" comments are skipped
-            - Only Docker Hub images are supported (non-hub registries are ignored)
             - Tags must follow semantic versioning format (MAJOR.MINOR.PATCH)
             - Returns an empty list if no images or no updates are found
         """
@@ -186,15 +232,16 @@ class CLI:
         return r
 
     def check_image(self, stack, image, tag):
-        # check if no explicit registry is specified and assume default is dockerhub (as it's the only supported)
-        # same logic as in
-        # https://github.com/moby/moby/blob/f0cec02a403496e2b1dd1aaf12b2530922e210db/registry/search.go#L144
+        registry = 'index.docker.io'
         if image.count('/') > 1:
-            part1 = image.split('/', 1)[0]
-            # TODO: support non-hub registries
-            if '.' in part1 or ':' in part1 or part1 == 'localhost':
-                print(f'::notice file={stack.relative_to(self.repo_dir)}::Image {image} using non-supported registry')
-                return
+            parts = image.split('/', 1)
+            # same logic to identify registry as in
+            # https://github.com/moby/moby/blob/f0cec02a403496e2b1dd1aaf12b2530922e210db/registry/search.go#L144
+            if '.' in parts[0] or ':' in parts[0] or parts[0] == 'localhost':
+                # docker.io works for "docker pull" but it does not work for API
+                if parts[0] != 'docker.io':
+                    registry = parts[0]
+                image = parts[1]
 
         m = self._re_tag.match(tag)
         if not m:
@@ -205,7 +252,7 @@ class CLI:
         repository = image
         if '/' not in image:
             repository = f'library/{repository}'
-        tags = get_tags(repository)
+        tags = get_tags(registry, repository)
         newer_tags = []
         for tag in tags:
             mp = pattern.match(tag)
