@@ -36,6 +36,7 @@ class TestIntegration(unittest.TestCase):
                 'tests/files/docker-compose.yml': [[['nginx', '1.19'], mock.ANY]],
                 'tests/files/other.yml': [[['nginx', '1.19-alpine'], mock.ANY]],
                 'tests/files/on-ghcr.yml': [[['ghcr.io/gethomepage/homepage', 'v1.6.1'], mock.ANY]],
+                'tests/files/on-quay.yml': [[['quay.io/oauth2-proxy/oauth2-proxy', 'v7.12.0'], mock.ANY]],
             },
         )
 
