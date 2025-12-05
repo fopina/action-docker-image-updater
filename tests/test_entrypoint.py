@@ -328,10 +328,9 @@ class Test(unittest.TestCase):
                 ]
             )
             self.assertRegex((dest / 'values.yaml').read_text(), r'\s+tag: v3\.99\.0\b')
-            self.assertEqual(self.req_mock.get.call_count, 2)
+            self.assertEqual(self.req_mock.get.call_count, 1)
             self.req_mock.get.assert_has_calls(
                 [
-                    mock.call('https://index.docker.io/v2/gethomepage/homepage/tags/list'),
                     mock.call('https://index.docker.io/v2/library/traefik/tags/list'),
                 ],
                 any_order=True,
