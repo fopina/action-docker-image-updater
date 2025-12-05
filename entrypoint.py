@@ -32,6 +32,7 @@ def set_github_action_output(output_name, output_value):
 @lru_cache
 def get_tags(registry, repository):
     tag_url = f'https://{registry}/v2/{repository}/tags/list'
+    headers = {}
     r = requests.get(tag_url)
     if r.status_code == 401:
         # Check WWW-Authenticate header for authentication realm and parameters
@@ -53,7 +54,8 @@ def get_tags(registry, repository):
                 token = token_r.json()['token']
 
                 # Retry the request with authentication
-                r = requests.get(tag_url, headers={'Authorization': f'Bearer {token}'})
+                headers = {'Authorization': f'Bearer {token}'}
+                r = requests.get(tag_url, headers=headers)
             else:
                 raise ValueError(f'No authentication realm found in WWW-Authenticate header: {auth_header}')
         else:
@@ -72,7 +74,7 @@ def get_tags(registry, repository):
         tag_url = link[start:end]
         if tag_url[0] == '/':
             tag_url = f'https://{registry}{tag_url}'
-        r = requests.get(tag_url, headers={'Authorization': f'Bearer {token}'})
+        r = requests.get(tag_url, headers=headers)
         tags.extend(r.json()['tags'])
         link = r.headers.get('Link', '')
 
