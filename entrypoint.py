@@ -223,7 +223,6 @@ class CLI:
 
         Notes:
             - Images with "autoupdater: disable" comments are skipped
-            - Only Docker Hub images are supported (non-hub registries are ignored)
             - Tags must follow semantic versioning format (MAJOR.MINOR.PATCH)
             - Returns an empty list if no images or no updates are found
         """
