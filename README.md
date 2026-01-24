@@ -3,9 +3,7 @@
 
 # action-docker-image-updater
 
-This action takes 2 integers as input and returns the sum of those in the output variable `sum`.
-
-It also adds a joke to output `joke` to brighten your day.
+This action updates Docker image versions inside docker-compose and other YAML files by checking for newer versions available in container registries.
 
 > **Note**  
 > [renovatebot](https://github.com/renovatebot/github-action) looks like the best option to do this, I recommend it over this action.  
