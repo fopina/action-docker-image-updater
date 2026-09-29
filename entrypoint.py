@@ -81,6 +81,15 @@ def get_tags(registry, repository):
     return tags
 
 
+class ImageReference(tuple):
+    """Keep the public plan tuple format while tracking its source line for edits."""
+
+    def __new__(cls, values, line):
+        obj = super().__new__(cls, values)
+        obj.line = line
+        return obj
+
+
 class CLI:
     def __init__(self, token, repo, file_match, extra_fields, image_jsonpath, tag_jsonpath, registry_jsonpath):
         self._token = token
@@ -112,41 +121,70 @@ class CLI:
     def version_tuple(self, version_string):
         return tuple(map(int, version_string.replace('-', '.').split('.')))
 
+    def _check_declaration(self, stack, lines, line, image, tag):
+        # Only the immediately preceding comment block at the field's indentation
+        # belongs to this declaration. The legacy named disable remains file-wide.
+        indent = len(lines[line]) - len(lines[line].lstrip())
+        directives = []
+        for previous in reversed(lines[:line]):
+            if not previous.lstrip().startswith('#') or len(previous) - len(previous.lstrip()) != indent:
+                break
+            match = re.fullmatch(r'\s*# autoupdater: (.*)', previous)
+            if match:
+                directives.append(match[1].strip())
+        legacy_disabled = any(text.strip() == f'# autoupdater: disable {image}' for text in lines)
+        if 'disable' in directives or legacy_disabled:
+            print(f'::notice file={stack.relative_to(self.repo_dir)}::Image {image} with autoupdate disabled')
+            return None
+        regexps = [directive[len('tag-regex=') :] for directive in directives if directive.startswith('tag-regex=')]
+        if len(regexps) > 1:
+            raise ValueError(f'Line {line + 1}: multiple autoupdater tag-regex directives')
+        return self.check_image(stack, image, tag, regexps[0] if regexps else None)
+
+    @staticmethod
+    def _jsonpath_line(match):
+        parent = match.context.value
+        if isinstance(match.path, jsonpath_ng.Fields):
+            return parent.lc.value(match.path.fields[0])[0]
+        if isinstance(match.path, jsonpath_ng.Index):
+            return parent.lc.item(match.path.index)[0]
+        raise ValueError('JSONPath image/tag must select a YAML mapping value or sequence item')
+
     def _proc_stack_extra_fields(self, stack: Path):
         if not self._extra_fields:
             return []
-
-        data = stack.read_text()
+        lines = stack.read_text().splitlines()
         r = []
         for _, (field_re, field_template) in self._extra_fields.items():
-            for raw_field, m in field_re.findall(data):
+            for line, text in enumerate(lines):
+                match = field_re.fullmatch(text)
+                if not match:
+                    continue
+                raw_field, m = match.groups()
                 image = field_template.replace('?', m).split(':', 1)
-                updates = self.check_image(stack, image[0], image[1])
+                updates = self._check_declaration(stack, lines, line, image[0], image[1])
                 if updates is None:
                     continue
-                # fix updates for this "custom field", strip template-added text to tag
                 tag_template = field_template.split(':')[1].split('?', 1)
                 p1, p2 = len(tag_template[0]), len(tag_template[1])
-                filtered_updates = [(x1, x2[p1:-p2]) for x1, x2 in updates]
-                r.append(((raw_field, m), filtered_updates))
+                filtered_updates = [(x1, x2[p1 : -p2 or None]) for x1, x2 in updates]
+                r.append((ImageReference((raw_field, m), line), filtered_updates))
         return r
 
     def _proc_stack_image(self, stack: Path):
-        s = stack.read_text()
+        lines = stack.read_text().splitlines()
         r = []
-        for image in self._re_image.findall(s):
-            # trim anchor
-            image = image[1:]
-
-            disabled = re.findall(r'# autoupdater: disable\s+[^\n]*' + image[0], s, re.DOTALL)
-            if disabled:
-                print(f'::notice file={stack.relative_to(self.repo_dir)}::Image {image[0]} with autoupdate disabled')
+        for line, text in enumerate(lines):
+            match = self._re_image.fullmatch(text)
+            if not match:
                 continue
-
-            updates = self.check_image(stack, image[0], image[1])
+            image = match.groups()[1:]
+            # Exclude closing YAML quotes from the tag.
+            image = (image[0], image[1].rstrip('"\''))
+            updates = self._check_declaration(stack, lines, line, image[0], image[1])
             if updates is None:
                 continue
-            r.append((image, updates))
+            r.append((ImageReference(image, line), updates))
         return r
 
     def _proc_stack_jsonpath(self, stack: Path):
@@ -198,10 +236,11 @@ class CLI:
                 name = match.value
                 tag = tag_match.value
             name = f'{registry_match}{name}'
-            updates = self.check_image(stack, name, tag)
+            line = self._jsonpath_line(tag_match if tag_match is not None else match)
+            updates = self._check_declaration(stack, s.splitlines(), line, name, tag)
             if updates is None:
                 continue
-            r.append(((match, tag_match or tag), updates))
+            r.append((ImageReference((match, tag_match or tag), line), updates))
         return r
 
     def proc_stack(self, stack: Path):
@@ -233,7 +272,15 @@ class CLI:
         r.extend(self._proc_stack_jsonpath(stack))
         return r
 
-    def check_image(self, stack, image, tag):
+    def check_image(self, stack, image, tag, tag_regex=None):
+        tag_filter = None
+        if tag_regex is not None:
+            try:
+                tag_filter = re.compile(tag_regex)
+            except re.error as exc:
+                raise ValueError(f'Image {image}: invalid autoupdater tag-regex {tag_regex!r}: {exc}') from exc
+            if not tag_filter.fullmatch(tag):
+                raise ValueError(f'Image {image}: current tag {tag!r} does not match tag-regex {tag_regex!r}')
         registry = 'index.docker.io'
         if image.count('/') > 1:
             parts = image.split('/', 1)
@@ -257,6 +304,8 @@ class CLI:
         tags = get_tags(registry, repository)
         newer_tags = []
         for tag in tags:
+            if tag_filter is not None and not tag_filter.fullmatch(tag):
+                continue
             mp = pattern.match(tag)
             if mp:
                 new_version = self.version_tuple(mp.group(1))
@@ -299,12 +348,20 @@ class CLI:
             if not newer_tags:
                 continue
             newest = newer_tags[-1]
+            # Scope replacements to the discovered declaration, including duplicates
+            # with different pragmas elsewhere in the same file.
+            source_lines = s.splitlines(keepends=True)
+            source_line = getattr(original, 'line', None)
+            if source_line is not None:
+                s = source_lines[source_line]
             if isinstance(original[0], jsonpath_ng.DatumInContext):
                 # keep this simple for now - might use jsonpath_ng and yaml parsing in the future
                 if isinstance(original[1], jsonpath_ng.DatumInContext):
                     # Both image name and tag are from separate JSON paths
+                    field = original[1].path
+                    prefix = rf'{re.escape(field.fields[0])}.*?:' if isinstance(field, jsonpath_ng.Fields) else r'\s*-'
                     s = re.sub(
-                        rf'({re.escape(original[1].path.fields[0])}.*?:.*?){re.escape(original[1].value)}',
+                        rf'({prefix}.*?){re.escape(original[1].value)}',
                         rf'\g<1>{newest[1]}',
                         s,
                     )
@@ -319,6 +376,9 @@ class CLI:
                     s = s.replace(f'{original[0]}{original[1]}', f'{original[0]}{newest[1]}')
                 else:
                     s = s.replace(f'{original[0]}:{original[1]}', f'{original[0]}:{newest[1]}')
+            if source_line is not None:
+                source_lines[source_line] = s
+                s = ''.join(source_lines)
             cksum.append(
                 f'* bump {_default_json_serializer(original[0])} from {_default_json_serializer(original[1])} to {newest[1]}'
             )
