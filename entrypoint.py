@@ -143,11 +143,7 @@ class CLI:
         regexps = [directive[len('tag-regex=') :] for directive in directives if directive.startswith('tag-regex=')]
         if len(regexps) > 1:
             raise ValueError(f'Line {line + 1}: multiple autoupdater tag-regex directives')
-        github_repos = [
-            directive[len('github-repo=') :]
-            for directive in directives
-            if directive.startswith('github-repo=')
-        ]
+        github_repos = [directive[len('github-repo=') :] for directive in directives if directive.startswith('github-repo=')]
         if len(github_repos) > 1:
             raise ValueError(f'Line {line + 1}: multiple autoupdater github-repo directives')
         github_repo = github_repos[0] if github_repos else None
