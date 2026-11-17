@@ -7,6 +7,7 @@ import re
 import subprocess
 from functools import cached_property, lru_cache
 from pathlib import Path
+from urllib.parse import quote
 
 import jsonpath_ng
 import requests
@@ -84,9 +85,10 @@ def get_tags(registry, repository):
 class ImageReference(tuple):
     """Keep the public plan tuple format while tracking its source line for edits."""
 
-    def __new__(cls, values, line):
+    def __new__(cls, values, line, image=None):
         obj = super().__new__(cls, values)
         obj.line = line
+        obj.image = image
         return obj
 
 
@@ -147,7 +149,10 @@ class CLI:
         if isinstance(match.path, jsonpath_ng.Fields):
             return parent.lc.value(match.path.fields[0])[0]
         if isinstance(match.path, jsonpath_ng.Index):
-            return parent.lc.item(match.path.index)[0]
+            index = getattr(match.path, 'index', None)
+            if index is None:
+                index = match.path.indices[0]
+            return parent.lc.item(index)[0]
         raise ValueError('JSONPath image/tag must select a YAML mapping value or sequence item')
 
     def _proc_stack_extra_fields(self, stack: Path):
@@ -168,7 +173,7 @@ class CLI:
                 tag_template = field_template.split(':')[1].split('?', 1)
                 p1, p2 = len(tag_template[0]), len(tag_template[1])
                 filtered_updates = [(x1, x2[p1 : -p2 or None]) for x1, x2 in updates]
-                r.append((ImageReference((raw_field, m), line), filtered_updates))
+                r.append((ImageReference((raw_field, m), line, image[0]), filtered_updates))
         return r
 
     def _proc_stack_image(self, stack: Path):
@@ -184,7 +189,7 @@ class CLI:
             updates = self._check_declaration(stack, lines, line, image[0], image[1])
             if updates is None:
                 continue
-            r.append((ImageReference(image, line), updates))
+            r.append((ImageReference(image, line, image[0]), updates))
         return r
 
     def _proc_stack_jsonpath(self, stack: Path):
@@ -240,7 +245,7 @@ class CLI:
             updates = self._check_declaration(stack, s.splitlines(), line, name, tag)
             if updates is None:
                 continue
-            r.append((ImageReference((match, tag_match or tag), line), updates))
+            r.append((ImageReference((match, tag_match or tag), line, name), updates))
         return r
 
     def proc_stack(self, stack: Path):
@@ -282,7 +287,7 @@ class CLI:
             if not tag_filter.fullmatch(tag):
                 raise ValueError(f'Image {image}: current tag {tag!r} does not match tag-regex {tag_regex!r}')
         registry = 'index.docker.io'
-        if image.count('/') > 1:
+        if '/' in image:
             parts = image.split('/', 1)
             # same logic to identify registry as in
             # https://github.com/moby/moby/blob/f0cec02a403496e2b1dd1aaf12b2530922e210db/registry/search.go#L144
@@ -314,6 +319,156 @@ class CLI:
         newer_tags.sort()
         return newer_tags
 
+    @staticmethod
+    def _registry_location(image):
+        registry = 'index.docker.io'
+        repository = image
+        if '/' in image:
+            parts = image.split('/', 1)
+            if '.' in parts[0] or ':' in parts[0] or parts[0] == 'localhost':
+                if parts[0] != 'docker.io':
+                    registry = parts[0]
+                repository = parts[1]
+        if '/' not in repository:
+            repository = f'library/{repository}'
+        return registry, repository
+
+    @staticmethod
+    def _registry_request(url, repository, headers=None):
+        """GET an anonymous Docker/OCI Distribution resource, handling bearer auth."""
+        headers = headers or {}
+        response = requests.get(url, headers=headers or None)
+        if response.status_code != 401:
+            response.raise_for_status()
+            return response
+        auth_header = response.headers.get('WWW-Authenticate', '')
+        if not auth_header.startswith('Bearer '):
+            raise ValueError(f'Unsupported registry authentication: {auth_header}')
+        params = dict(re.findall(r'([\w-]+)="([^"]*)"', auth_header[len('Bearer ') :]))
+        realm = params.get('realm')
+        if not realm:
+            raise ValueError('Registry bearer challenge did not include a realm')
+        token_response = requests.get(
+            realm,
+            params={
+                'service': params.get('service'),
+                'scope': params.get('scope') or f'repository:{repository}:pull',
+            },
+        )
+        token_response.raise_for_status()
+        token_data = token_response.json()
+        token = token_data.get('token') or token_data.get('access_token')
+        if not token:
+            raise ValueError('Registry token response did not include a token')
+        response = requests.get(url, headers={**headers, 'Authorization': f'Bearer {token}'})
+        response.raise_for_status()
+        return response
+
+    def _image_metadata(self, image, tag):
+        registry, repository = self._registry_location(image)
+        base = f'https://{registry}/v2/{repository}'
+        manifest_headers = {
+            'Accept': ', '.join(
+                [
+                    'application/vnd.oci.image.index.v1+json',
+                    'application/vnd.docker.distribution.manifest.list.v2+json',
+                    'application/vnd.oci.image.manifest.v1+json',
+                    'application/vnd.docker.distribution.manifest.v2+json',
+                ]
+            )
+        }
+        manifest = self._registry_request(
+            f'{base}/manifests/{quote(tag, safe="")}', repository, manifest_headers
+        ).json()
+        if 'manifests' in manifest:
+            candidates = [
+                item
+                for item in manifest['manifests']
+                if item.get('platform', {}).get('os') == 'linux'
+                and item.get('platform', {}).get('architecture') == 'amd64'
+            ]
+            if not candidates:
+                return None, None
+            digest = candidates[0]['digest']
+            manifest = self._registry_request(f'{base}/manifests/{digest}', repository, manifest_headers).json()
+        config_digest = manifest.get('config', {}).get('digest')
+        if not config_digest:
+            return None, None
+        config = self._registry_request(f'{base}/blobs/{config_digest}', repository).json()
+        labels = config.get('config', {}).get('Labels') or {}
+        source = labels.get('org.opencontainers.image.source')
+        if not source:
+            return None, labels.get('org.opencontainers.image.version')
+        match = re.fullmatch(r'https?://github\.com/([^/]+)/([^/#]+?)(?:\.git)?/?', source)
+        return (f'{match[1]}/{match[2]}' if match else None), labels.get('org.opencontainers.image.version')
+
+    def _github_release_notes(self, image, old_tag, new_tag):
+        """Get GitHub release notes between image tags when OCI source metadata permits."""
+        try:
+            source, old_version = self._image_metadata(image, old_tag)
+            if not source:
+                return None
+            _, new_version = self._image_metadata(image, new_tag)
+            headers = {'Accept': 'application/vnd.github+json'}
+            if self._token:
+                headers['Authorization'] = f'Bearer {self._token}'
+            releases = []
+            page = 1
+            while True:
+                response = requests.get(
+                    f'https://api.github.com/repos/{source}/releases',
+                    headers=headers,
+                    params={'per_page': 100, 'page': page},
+                )
+                response.raise_for_status()
+                batch = response.json()
+                if not batch:
+                    break
+                releases.extend(batch)
+                if len(batch) < 100:
+                    break
+                page += 1
+
+            def version_key(value):
+                return value.removeprefix('v').removeprefix('V') if isinstance(value, str) else value
+
+            def release_index(tag, version):
+                candidates = {version_key(tag), version_key(version)} - {None}
+                return next(
+                    (
+                        index
+                        for index, release in enumerate(releases)
+                        if version_key(release.get('tag_name')) in candidates
+                    ),
+                    None,
+                )
+
+            old_release_tag = old_version or old_tag
+            new_release_tag = new_version or new_tag
+            old_index = release_index(old_tag, old_release_tag)
+            new_index = release_index(new_tag, new_release_tag)
+            if old_index is None or new_index is None or new_index >= old_index:
+                from_ref, to_ref = old_release_tag, new_release_tag
+                selected = []
+            else:
+                selected = releases[new_index:old_index]
+                from_ref = releases[old_index].get('tag_name')
+                to_ref = releases[new_index].get('tag_name')
+            parts = [
+                f'### {image}: {old_tag} → {new_tag}',
+                f'[Compare changes](https://github.com/{source}/compare/{quote(from_ref, safe="")}...{quote(to_ref, safe="")})',
+            ]
+            for release in reversed(selected):
+                title = release.get('name') or release.get('tag_name')
+                url = release.get('html_url')
+                heading = f'[{title}]({url})' if url else title
+                body = (release.get('body') or '').strip()
+                parts.append(f'#### {heading}\n{body}' if body else f'#### {heading}')
+            return '\n\n'.join(parts)
+        except Exception as exc:
+            print(f'::warning::Could not fetch release notes for {image}: {exc}')
+            return None
+
     def create_branch_and_mr(self, stack: Path, branch, body=None):
         title = f'Update images in {stack.stem}'
         # If stack is not directly under repo root, append parent dir in parentheses
@@ -344,6 +499,7 @@ class CLI:
     def update_stack(self, stack: Path, data):
         s = stack.read_text()
         cksum = []
+        release_notes = []
         for original, newer_tags in data:
             if not newer_tags:
                 continue
@@ -382,6 +538,14 @@ class CLI:
             cksum.append(
                 f'* bump {_default_json_serializer(original[0])} from {_default_json_serializer(original[1])} to {newest[1]}'
             )
+            image_name = getattr(original, 'image', original[0])
+            old_tag = original[1].value if isinstance(original[1], jsonpath_ng.DatumInContext) else original[1]
+            if isinstance(image_name, jsonpath_ng.DatumInContext):
+                image_name = image_name.value
+            if isinstance(image_name, str):
+                notes = self._github_release_notes(image_name, old_tag, newest[1])
+                if notes:
+                    release_notes.append(notes)
         if not cksum:
             return False, None
         cksumhex = hashlib.sha1(''.join(cksum).encode()).hexdigest()
@@ -390,7 +554,10 @@ class CLI:
             print(f'Branch {branch} already exists, skipping')
             return False, branch
         stack.write_text(s)
-        self.create_branch_and_mr(stack, branch, body='\n'.join(cksum))
+        body = '\n'.join(cksum)
+        if release_notes:
+            body += '\n\n## Release notes\n\n' + '\n\n'.join(release_notes)
+        self.create_branch_and_mr(stack, branch, body=body)
         subprocess.check_call(['git', 'checkout', self._base_revision])
         return True, branch
 
