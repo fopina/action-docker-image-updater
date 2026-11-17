@@ -149,7 +149,10 @@ class CLI:
         if isinstance(match.path, jsonpath_ng.Fields):
             return parent.lc.value(match.path.fields[0])[0]
         if isinstance(match.path, jsonpath_ng.Index):
-            return parent.lc.item(match.path.indices[0])[0]
+            index = getattr(match.path, 'index', None)
+            if index is None:
+                index = match.path.indices[0]
+            return parent.lc.item(index)[0]
         raise ValueError('JSONPath image/tag must select a YAML mapping value or sequence item')
 
     def _proc_stack_extra_fields(self, stack: Path):
