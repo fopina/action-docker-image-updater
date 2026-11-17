@@ -187,6 +187,40 @@ runs). `# autoupdater: disable` in the same comment block takes precedence. The
 legacy `# autoupdater: disable IMAGE_NAME` form continues to disable that image
 throughout the file.
 
+## Map images to upstream GitHub releases
+
+Release notes are discovered automatically when an image publishes the OCI
+`org.opencontainers.image.source` label. For images without that label, add a
+`github-repo` directive immediately above the image or tag field, at the same
+indentation. Use the GitHub `owner/repository` form:
+
+```yaml
+services:
+  traefik:
+    # autoupdater: github-repo=traefik/traefik
+    image: traefik:v3.5.3
+```
+
+When no OCI `org.opencontainers.image.version` label is available, image tags
+are matched to GitHub release tags after removing a leading `v` or `V`. To map
+tags with extra suffixes, add `github-version-regex` with exactly one capture
+group for the upstream release version:
+
+```yaml
+services:
+  traefik:
+    # autoupdater: github-repo=traefik/traefik
+    # autoupdater: github-version-regex=v?(\d+\.\d+\.\d+)(?:-alpine)?
+    image: traefik:v3.5.3-alpine
+```
+
+The version regexp must match the complete image tag. Its capture group is used
+as the GitHub release version only when the OCI version label is missing. You
+can use these directives with standard image fields, mapped `extra-fields`, and
+JSONPath layouts; place them above the field that contains the image tag. OCI
+source discovery remains the default, and images without a usable mapping or
+source label continue to update without release notes.
+
 ## Dry run
 
 Capture the plan without actually creating any branch or pull request

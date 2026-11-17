@@ -85,10 +85,12 @@ def get_tags(registry, repository):
 class ImageReference(tuple):
     """Keep the public plan tuple format while tracking its source line for edits."""
 
-    def __new__(cls, values, line, image=None):
+    def __new__(cls, values, line, image=None, github_repo=None, github_version_regex=None):
         obj = super().__new__(cls, values)
         obj.line = line
         obj.image = image
+        obj.github_repo = github_repo
+        obj.github_version_regex = github_version_regex
         return obj
 
 
@@ -141,7 +143,38 @@ class CLI:
         regexps = [directive[len('tag-regex=') :] for directive in directives if directive.startswith('tag-regex=')]
         if len(regexps) > 1:
             raise ValueError(f'Line {line + 1}: multiple autoupdater tag-regex directives')
-        return self.check_image(stack, image, tag, regexps[0] if regexps else None)
+        github_repos = [
+            directive[len('github-repo=') :]
+            for directive in directives
+            if directive.startswith('github-repo=')
+        ]
+        if len(github_repos) > 1:
+            raise ValueError(f'Line {line + 1}: multiple autoupdater github-repo directives')
+        github_repo = github_repos[0] if github_repos else None
+        if github_repo and not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', github_repo):
+            raise ValueError(
+                f'Line {line + 1}: invalid autoupdater github-repo {github_repo!r}; expected owner/repository'
+            )
+
+        version_regexps = [
+            directive[len('github-version-regex=') :]
+            for directive in directives
+            if directive.startswith('github-version-regex=')
+        ]
+        if len(version_regexps) > 1:
+            raise ValueError(f'Line {line + 1}: multiple autoupdater github-version-regex directives')
+        github_version_regex = version_regexps[0] if version_regexps else None
+        if github_version_regex:
+            try:
+                compiled = re.compile(github_version_regex)
+            except re.error as exc:
+                raise ValueError(f'Line {line + 1}: invalid autoupdater github-version-regex: {exc}') from exc
+            if compiled.groups != 1:
+                raise ValueError(
+                    f'Line {line + 1}: autoupdater github-version-regex must contain exactly one capture group'
+                )
+        updates = self.check_image(stack, image, tag, regexps[0] if regexps else None)
+        return updates, github_repo, github_version_regex
 
     @staticmethod
     def _jsonpath_line(match):
@@ -167,13 +200,19 @@ class CLI:
                     continue
                 raw_field, m = match.groups()
                 image = field_template.replace('?', m).split(':', 1)
-                updates = self._check_declaration(stack, lines, line, image[0], image[1])
-                if updates is None:
+                declaration = self._check_declaration(stack, lines, line, image[0], image[1])
+                if declaration is None:
                     continue
+                updates, github_repo, github_version_regex = declaration
                 tag_template = field_template.split(':')[1].split('?', 1)
                 p1, p2 = len(tag_template[0]), len(tag_template[1])
                 filtered_updates = [(x1, x2[p1 : -p2 or None]) for x1, x2 in updates]
-                r.append((ImageReference((raw_field, m), line, image[0]), filtered_updates))
+                r.append(
+                    (
+                        ImageReference((raw_field, m), line, image[0], github_repo, github_version_regex),
+                        filtered_updates,
+                    )
+                )
         return r
 
     def _proc_stack_image(self, stack: Path):
@@ -186,10 +225,16 @@ class CLI:
             image = match.groups()[1:]
             # Exclude closing YAML quotes from the tag.
             image = (image[0], image[1].rstrip('"\''))
-            updates = self._check_declaration(stack, lines, line, image[0], image[1])
-            if updates is None:
+            declaration = self._check_declaration(stack, lines, line, image[0], image[1])
+            if declaration is None:
                 continue
-            r.append((ImageReference(image, line, image[0]), updates))
+            updates, github_repo, github_version_regex = declaration
+            r.append(
+                (
+                    ImageReference(image, line, image[0], github_repo, github_version_regex),
+                    updates,
+                )
+            )
         return r
 
     def _proc_stack_jsonpath(self, stack: Path):
@@ -242,10 +287,16 @@ class CLI:
                 tag = tag_match.value
             name = f'{registry_match}{name}'
             line = self._jsonpath_line(tag_match if tag_match is not None else match)
-            updates = self._check_declaration(stack, s.splitlines(), line, name, tag)
-            if updates is None:
+            declaration = self._check_declaration(stack, s.splitlines(), line, name, tag)
+            if declaration is None:
                 continue
-            r.append((ImageReference((match, tag_match or tag), line, name), updates))
+            updates, github_repo, github_version_regex = declaration
+            r.append(
+                (
+                    ImageReference((match, tag_match or tag), line, name, github_repo, github_version_regex),
+                    updates,
+                )
+            )
         return r
 
     def proc_stack(self, stack: Path):
@@ -402,13 +453,24 @@ class CLI:
         match = re.fullmatch(r'https?://github\.com/([^/]+)/([^/#]+?)(?:\.git)?/?', source)
         return (f'{match[1]}/{match[2]}' if match else None), labels.get('org.opencontainers.image.version')
 
-    def _github_release_notes(self, image, old_tag, new_tag):
-        """Get GitHub release notes between image tags when OCI source metadata permits."""
+    def _github_release_notes(self, image, old_tag, new_tag, source_override=None, version_regex=None):
+        """Get GitHub release notes using explicit mapping or OCI source metadata."""
         try:
-            source, old_version = self._image_metadata(image, old_tag)
+            try:
+                discovered_source, old_version = self._image_metadata(image, old_tag)
+            except Exception:
+                if not source_override:
+                    raise
+                discovered_source, old_version = None, None
+            source = source_override or discovered_source
             if not source:
                 return None
-            _, new_version = self._image_metadata(image, new_tag)
+            try:
+                _, new_version = self._image_metadata(image, new_tag)
+            except Exception:
+                if not source_override:
+                    raise
+                new_version = None
             headers = {'Accept': 'application/vnd.github+json'}
             if self._token:
                 headers['Authorization'] = f'Bearer {self._token}'
@@ -443,8 +505,18 @@ class CLI:
                     None,
                 )
 
-            old_release_tag = old_version or old_tag
-            new_release_tag = new_version or new_tag
+            def release_version(tag, image_version):
+                if image_version:
+                    return image_version
+                if version_regex:
+                    match = re.fullmatch(version_regex, tag)
+                    if not match:
+                        raise ValueError(f'image tag {tag!r} does not match github-version-regex {version_regex!r}')
+                    return match.group(1)
+                return tag.removeprefix('v').removeprefix('V')
+
+            old_release_tag = release_version(old_tag, old_version)
+            new_release_tag = release_version(new_tag, new_version)
             old_index = release_index(old_tag, old_release_tag)
             new_index = release_index(new_tag, new_release_tag)
             if old_index is None or new_index is None or new_index >= old_index:
@@ -543,7 +615,13 @@ class CLI:
             if isinstance(image_name, jsonpath_ng.DatumInContext):
                 image_name = image_name.value
             if isinstance(image_name, str):
-                notes = self._github_release_notes(image_name, old_tag, newest[1])
+                notes = self._github_release_notes(
+                    image_name,
+                    old_tag,
+                    newest[1],
+                    source_override=getattr(original, 'github_repo', None),
+                    version_regex=getattr(original, 'github_version_regex', None),
+                )
                 if notes:
                     release_notes.append(notes)
         if not cksum:
