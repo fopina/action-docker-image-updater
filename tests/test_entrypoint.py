@@ -76,6 +76,76 @@ class Test(unittest.TestCase):
             ]
         )
 
+    def test_github_release_notes_between_image_versions(self):
+        cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None)
+        cli._image_metadata = mock.Mock(side_effect=[('owner/project', 'v1.0.0'), ('owner/project', 'v2.0.0')])
+        self.req_mock.get.return_value.json.return_value = [
+            {'tag_name': 'v2.0.0', 'name': '2.0', 'body': 'Latest changes'},
+            {'tag_name': 'v1.5.0', 'name': '1.5', 'body': 'Middle changes'},
+            {'tag_name': 'v1.0.0', 'name': '1.0', 'body': 'Old changes'},
+        ]
+
+        notes = cli._github_release_notes('owner/image', '1.0.0', '2.0.0')
+
+        self.assertIn('compare/v1.0.0...v2.0.0', notes)
+        self.assertIn('Middle changes', notes)
+        self.assertIn('Latest changes', notes)
+        self.assertNotIn('Old changes', notes)
+
+    def test_github_release_notes_skip_non_github_images(self):
+        cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None)
+        cli._image_metadata = mock.Mock(return_value=(None, None))
+
+        self.assertIsNone(cli._github_release_notes('owner/image', '1.0.0', '2.0.0'))
+        self.req_mock.get.assert_not_called()
+
+    def test_github_release_notes_fall_back_to_compare_link(self):
+        cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None)
+        cli._image_metadata = mock.Mock(side_effect=[('owner/project', 'v1.0.0'), ('owner/project', 'v2.0.0')])
+        self.req_mock.get.return_value.json.return_value = [{'tag_name': 'unrelated'}]
+
+        notes = cli._github_release_notes('owner/image', '1.0.0', '2.0.0')
+
+        self.assertIn('compare/v1.0.0...v2.0.0', notes)
+        self.assertNotIn('####', notes)
+
+    def test_image_metadata_reads_standard_oci_labels(self):
+        cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None)
+        manifest = mock.Mock(status_code=200)
+        manifest.json.return_value = {'config': {'digest': 'sha256:config'}}
+        config = mock.Mock(status_code=200)
+        config.json.return_value = {
+            'config': {
+                'Labels': {
+                    'org.opencontainers.image.source': 'https://github.com/owner/project.git',
+                    'org.opencontainers.image.version': 'v1.2.3',
+                }
+            }
+        }
+        self.req_mock.get.side_effect = [manifest, config]
+
+        metadata = cli._image_metadata('ghcr.io/owner/image', '1.2.3')
+
+        self.assertEqual(metadata, ('owner/project', 'v1.2.3'))
+        self.req_mock.get.assert_has_calls(
+            [
+                mock.call(
+                    'https://ghcr.io/v2/owner/image/manifests/1.2.3',
+                    headers={
+                        'Accept': ', '.join(
+                            [
+                                'application/vnd.oci.image.index.v1+json',
+                                'application/vnd.docker.distribution.manifest.list.v2+json',
+                                'application/vnd.oci.image.manifest.v1+json',
+                                'application/vnd.docker.distribution.manifest.v2+json',
+                            ]
+                        )
+                    },
+                ),
+                mock.call('https://ghcr.io/v2/owner/image/blobs/sha256:config', headers=None),
+            ]
+        )
+
     def test_default_no_update(self):
         self.req_mock.get.return_value.json.return_value = {'tags': ['1.19']}
         entrypoint.main(['--dry'])
@@ -258,7 +328,7 @@ class Test(unittest.TestCase):
             self.assertNotIn('image: nginx:1.20', dest.read_text())
             entrypoint.main(['--file-match', 'tests/temp*/**/*.yml'])
             self.assertIn('image: nginx:1.20', dest.read_text())
-            self.assertEqual(self.req_mock.get.call_count, 1)
+            self.assertEqual(self.req_mock.get.call_count, 2)
             self.req_mock.get.assert_has_calls(
                 [
                     mock.call('https://index.docker.io/v2/library/nginx/tags/list'),
@@ -272,7 +342,7 @@ class Test(unittest.TestCase):
             self.assertNotIn('image: ghcr.io/gethomepage/homepage:v1.7.0', dest.read_text())
             entrypoint.main(['--file-match', 'tests/temp*/**/*.yml'])
             self.assertIn('image: ghcr.io/gethomepage/homepage:v1.7.0', dest.read_text())
-            self.assertEqual(self.req_mock.get.call_count, 1)
+            self.assertEqual(self.req_mock.get.call_count, 2)
             self.req_mock.get.assert_has_calls(
                 [
                     mock.call('https://ghcr.io/v2/gethomepage/homepage/tags/list'),
@@ -289,7 +359,7 @@ class Test(unittest.TestCase):
         with self.copy_from('ansible_playbook.yml') as dest:
             entrypoint.main(['--file-match', 'tests/temp*/**/*book.yml', '--extra', json.dumps(extra)])
             self.assertRegex(dest.read_text(), r'\s+portainer_version: 2\.24\.0\b')
-            self.assertEqual(self.req_mock.get.call_count, 2)
+            self.assertEqual(self.req_mock.get.call_count, 4)
             self.req_mock.get.assert_has_calls(
                 [
                     mock.call('https://index.docker.io/v2/portainer/portainer-ce/tags/list'),
@@ -329,7 +399,7 @@ class Test(unittest.TestCase):
                 ]
             )
             self.assertRegex((dest / 'values.yaml').read_text(), r'\s+tag: v3\.99\.0\b')
-            self.assertEqual(self.req_mock.get.call_count, 1)
+            self.assertEqual(self.req_mock.get.call_count, 2)
             self.req_mock.get.assert_has_calls(
                 [
                     mock.call('https://index.docker.io/v2/library/traefik/tags/list'),
@@ -365,7 +435,7 @@ class Test(unittest.TestCase):
                 ]
             )
             self.assertRegex((dest / 'values.yaml').read_text(), r'\s+repository: traefik:v3\.99\.0\b')
-            self.assertEqual(self.req_mock.get.call_count, 1)
+            self.assertEqual(self.req_mock.get.call_count, 2)
             self.req_mock.get.assert_has_calls(
                 [
                     mock.call('https://index.docker.io/v2/library/traefik/tags/list'),

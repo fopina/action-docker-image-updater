@@ -13,6 +13,17 @@ This action updates Docker image versions inside docker-compose and other YAML f
 
 Please refer to the [release page](https://github.com/fopina/action-docker-image-updater/releases/latest) for the latest release notes.
 
+## Pull request release notes
+
+When the image source resolves to GitHub, the generated pull request includes a GitHub
+compare link between the installed and proposed versions. If matching published releases
+exist, their notes are included as well. The action discovers the source repository from the image's `org.opencontainers.image.source`
+OCI label and uses `org.opencontainers.image.version` when present to match GitHub release
+tags (otherwise it uses the image tags). This requires the source repository to be a GitHub
+repository and those versions to correspond to published GitHub Releases. Images without
+usable labels or matching releases are still updated; their pull requests keep the regular
+image bump summary.
+
 # Usage
 
 See [action.yml](action.yml)
