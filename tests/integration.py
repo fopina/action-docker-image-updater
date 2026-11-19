@@ -21,21 +21,31 @@ class TestIntegration(unittest.TestCase):
 
     def test_it1(self):
         plan = self.load_plan('it1')
-        # Docker Hub's nginx tag does not have a readable OCI creation time,
-        # so the default cooldown skips it.
-        self.assertIsNone(plan)
+        self.assertEqual(
+            plan,
+            {
+                'tests/files/docker-compose.yml': [[['nginx', '1.19'], mock.ANY]],
+            },
+        )
 
     def test_it2(self):
         plan = self.load_plan('it2')
         self.assertEqual(
             plan,
             {
+                'tests/files/docker-compose.yml': [[['nginx', '1.19'], mock.ANY]],
+                'tests/files/other.yml': [[['nginx', '1.19-alpine'], mock.ANY]],
                 'tests/files/on-ghcr.yml': [[['ghcr.io/gethomepage/homepage', 'v1.6.1'], mock.ANY]],
+                'tests/files/on-quay.yml': [[['quay.io/oauth2-proxy/oauth2-proxy', 'v7.12.0'], mock.ANY]],
             },
         )
 
     def test_it3(self):
         plan = self.load_plan('it3')
-        # The Portainer image tags do not have a readable OCI creation time.
-        self.assertNotIn('tests/files/ansible_playbook.yml', plan)
-        self.assertIn('tests/files/on-ghcr.yml', plan)
+        self.assertEqual(
+            plan.get('tests/files/ansible_playbook.yml'),
+            [
+                [['portainer_version: ', '2.21.0'], mock.ANY],
+                [['portainer_agent_version: ', '2.21.0'], mock.ANY],
+            ],
+        )

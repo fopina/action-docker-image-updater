@@ -46,6 +46,7 @@ jobs:
         id: it1
         with:
           token: "${{ github.token }}"
+          cooldown: '0'
           dry: 'true'
 
       - name: Integration test 2
@@ -53,6 +54,7 @@ jobs:
         id: it2
         with:
           token: "${{ github.token }}"
+          cooldown: '0'
           file-match: '**/*.yml'
           dry: 'true'
       
@@ -61,6 +63,7 @@ jobs:
         id: it3
         with:
           token: "${{ github.token }}"
+          cooldown: '0'
           file-match: '**/*.yml'
           extra-fields: >
             {

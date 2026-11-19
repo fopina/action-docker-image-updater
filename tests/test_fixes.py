@@ -18,6 +18,7 @@ class Test(unittest.TestCase):
             {
                 'GITHUB_OUTPUT': str(self.out_file),
                 'INPUT_TOKEN': 'xxx',
+                'INPUT_COOLDOWN': '0',
             }
         )
         self._req_patch = mock.patch('entrypoint.requests')

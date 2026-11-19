@@ -23,16 +23,13 @@ class Test(unittest.TestCase):
                 'GITHUB_REPOSITORY': 'test/repo',
                 'GITHUB_OUTPUT': str(self.out_file),
                 'INPUT_TOKEN': 'xxx',
+                'INPUT_COOLDOWN': '0',
             }
         )
         self._req_patch = mock.patch('entrypoint.requests')
         self.req_mock = self._req_patch.start()
         self._process_patch = mock.patch('entrypoint.subprocess')
         self.sp_mock = self._process_patch.start()
-        self._created_patch = mock.patch(
-            'entrypoint.CLI._image_created_at', return_value=datetime.now(timezone.utc) - timedelta(days=4)
-        )
-        self._created_patch.start()
         entrypoint.get_tags.cache_clear()
 
     def tearDown(self) -> None:
@@ -40,7 +37,6 @@ class Test(unittest.TestCase):
         self.out_file.unlink()
         self._req_patch.stop()
         self._process_patch.stop()
-        self._created_patch.stop()
 
     def load_plan(self):
         data = self.out_file.read_text().strip()
