@@ -381,7 +381,6 @@ class CLI:
             repository = f'library/{repository}'
         tags = get_tags(registry, repository)
         newer_tags = []
-        now = datetime.now(timezone.utc)
         for tag in tags:
             if tag_filter is not None and not tag_filter.fullmatch(tag):
                 continue
@@ -389,23 +388,24 @@ class CLI:
             if mp:
                 new_version = self.version_tuple(mp.group(1))
                 if len(current_version) == len(new_version) and new_version > current_version:
-                    if self._cooldown.days:
-                        created = self._image_created_at(image, tag)
-                        if created is None:
-                            print(
-                                f'::notice file={stack.relative_to(self.repo_dir)}::Skipping {image_reference}:{tag}; '
-                                'cooldown cannot be checked because the image has no readable OCI created timestamp'
-                            )
-                            continue
-                        eligible_at = created + self._cooldown
-                        if now < eligible_at:
-                            print(
-                                f'::notice file={stack.relative_to(self.repo_dir)}::Skipping {image_reference}:{tag}; '
-                                f'cooldown expires at {eligible_at.isoformat()}'
-                            )
-                            continue
                     newer_tags.append((new_version, tag))
         newer_tags.sort()
+        if newer_tags and self._cooldown.days:
+            newest_tag = newer_tags[-1][1]
+            created = self._image_created_at(image, newest_tag)
+            if created is None:
+                print(
+                    f'::notice file={stack.relative_to(self.repo_dir)}::Skipping {image_reference}:{newest_tag}; '
+                    'cooldown cannot be checked because the image has no readable OCI created timestamp'
+                )
+                return []
+            eligible_at = created + self._cooldown
+            if datetime.now(timezone.utc) < eligible_at:
+                print(
+                    f'::notice file={stack.relative_to(self.repo_dir)}::Skipping {image_reference}:{newest_tag}; '
+                    f'cooldown expires at {eligible_at.isoformat()}'
+                )
+                return []
         return newer_tags
 
     @staticmethod

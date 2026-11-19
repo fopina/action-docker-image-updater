@@ -89,14 +89,22 @@ class Test(unittest.TestCase):
         output = io.StringIO()
         with (
             mock.patch('entrypoint.get_tags', return_value=['1.2.0', '1.3.0']),
-            mock.patch.object(cli, '_image_created_at', side_effect=[now - timedelta(days=1), now - timedelta(days=4)]),
+            mock.patch.object(cli, '_image_created_at', return_value=now - timedelta(days=1)) as created_at,
             redirect_stdout(output),
         ):
-            self.assertEqual(
-                cli.check_image(cli.repo_dir / 'compose.yml', 'example/image', '1.1.0'), [((1, 3, 0), '1.3.0')]
-            )
-        self.assertIn('Skipping example/image:1.2.0', output.getvalue())
+            self.assertEqual(cli.check_image(cli.repo_dir / 'compose.yml', 'example/image', '1.1.0'), [])
+        created_at.assert_called_once_with('example/image', '1.3.0')
+        self.assertIn('Skipping example/image:1.3.0', output.getvalue())
         self.assertIn('cooldown expires at', output.getvalue())
+
+        with (
+            mock.patch('entrypoint.get_tags', return_value=['1.2.0', '1.3.0']),
+            mock.patch.object(cli, '_image_created_at', return_value=now - timedelta(days=4)),
+        ):
+            self.assertEqual(
+                cli.check_image(cli.repo_dir / 'compose.yml', 'example/image', '1.1.0'),
+                [((1, 2, 0), '1.2.0'), ((1, 3, 0), '1.3.0')],
+            )
 
     def test_github_release_notes_between_image_versions(self):
         cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None)
