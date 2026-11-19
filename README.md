@@ -5,6 +5,8 @@
 
 This action updates Docker image versions inside docker-compose and other YAML files by checking for newer versions available in container registries.
 
+New image versions must have a timestamp at least three days old before the action will update to them. The action checks registry upload metadata where available (Docker Hub, Quay, GHCR, and ECR), then falls back to the OCI image configuration `created` timestamp. Set `cooldown` to change the window; `0` disables timestamp checks. If cooldown is enabled and no timestamp is available, the file fails with an error; use `cooldown: '0'` if you want to use that registry. GHCR metadata requires the action token to have package read access, and ECR metadata requires AWS credentials in the environment. This follows [Dependabot's default three-day cooldown for version updates](https://github.blog/security/supply-chain-security/the-case-for-a-cooldown-why-dependabot-now-waits-before-issuing-version-updates/). The action cannot currently identify security fixes in container images to bypass the delay because it has no reliable advisory signal. Parsing release notes would be a heuristic and could miss security patches.
+
 > **Note**  
 > [renovatebot](https://github.com/renovatebot/github-action) looks like the best option to do this, I recommend it over this action.  
 > I only keep it as I did before finding out about it and it has some specific behavior I need.

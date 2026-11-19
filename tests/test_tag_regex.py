@@ -12,7 +12,7 @@ class TestTagRegex(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.stack = Path(self.tmp.name) / 'values.yaml'
         with mock.patch('entrypoint.subprocess'):
-            self.cli = entrypoint.CLI(None, None, '*.yaml', None, None, None, None)
+            self.cli = entrypoint.CLI(None, None, '*.yaml', None, None, None, None, cooldown=0)
         self.cli.repo_dir = Path(self.tmp.name)
         self.cli.branches = ''
         self.tags = mock.patch('entrypoint.get_tags', return_value=['4.1.0', '4.1.2', '2021.11.18']).start()
@@ -57,7 +57,7 @@ class TestTagRegex(unittest.TestCase):
 
     def test_mapped_field_filters_complete_tag(self):
         with mock.patch('entrypoint.subprocess'):
-            self.cli = entrypoint.CLI(None, None, '', {'version': 'app:v?-alpine'}, None, None, None)
+            self.cli = entrypoint.CLI(None, None, '', {'version': 'app:v?-alpine'}, None, None, None, cooldown=0)
         self.cli.repo_dir = Path(self.tmp.name)
         self.cli.branches = ''
         self.tags.return_value = ['v4.1.2-alpine', 'v2021.11.18-alpine', 'v4.2.0']
@@ -71,7 +71,7 @@ class TestTagRegex(unittest.TestCase):
 
     def test_mapped_field_without_suffix(self):
         with mock.patch('entrypoint.subprocess'):
-            cli = entrypoint.CLI(None, None, '', {'version': 'app:?'}, None, None, None)
+            cli = entrypoint.CLI(None, None, '', {'version': 'app:?'}, None, None, None, cooldown=0)
         cli.repo_dir = self.cli.repo_dir
         self.write('# autoupdater: tag-regex=\\d\\.\\d+\\.\\d+\nversion: 4.1.1\n')
         self.assertEqual(cli.proc_stack(self.stack)[0][1], [((4, 1, 2), '4.1.2')])

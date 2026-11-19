@@ -1,10 +1,13 @@
 #!/usr/bin/env -S python3 -u
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import re
 import subprocess
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from functools import cached_property, lru_cache
 from pathlib import Path
 from urllib.parse import quote
@@ -15,6 +18,16 @@ from ruamel.yaml import YAML
 
 MAX_PR_BODY_LENGTH = 60_000
 MAX_RELEASE_NOTE_LINES_PER_IMAGE = 10
+REGISTRY_TIMESTAMP_FIELDS = [
+    'tag_last_pushed',  # Docker Hub tag schema: https://docs.docker.com/reference/api/hub/latest/schemas/tag/
+    'imagePushedAt',  # Amazon ECR DescribeImages: https://docs.aws.amazon.com/AmazonECR/latest/APIReference/API_DescribeImages.html
+    'created_at',  # GitHub Packages version schema: https://docs.github.com/en/rest/packages/packages
+    'updated_at',  # GitHub Packages version schema: https://docs.github.com/en/rest/packages/packages
+    'last_updated',  # Docker Hub tag schema: https://docs.docker.com/reference/api/hub/latest/schemas/tag/
+    'start_ts',  # Quay tag API response: https://github.com/quay/quay/discussions/1807
+    'last_modified',  # Quay tag API response: https://github.com/quay/quay/discussions/1807
+    'created',  # OCI image config: https://github.com/opencontainers/image-spec/blob/main/config.md
+]
 
 yaml = YAML()
 
@@ -98,7 +111,9 @@ class ImageReference(tuple):
 
 
 class CLI:
-    def __init__(self, token, repo, file_match, extra_fields, image_jsonpath, tag_jsonpath, registry_jsonpath):
+    def __init__(
+        self, token, repo, file_match, extra_fields, image_jsonpath, tag_jsonpath, registry_jsonpath, cooldown=3
+    ):
         self._token = token
         self._repo = repo
         self._glob = file_match
@@ -110,6 +125,9 @@ class CLI:
         self._image_jsonpath = image_jsonpath
         self._tag_jsonpath = tag_jsonpath
         self._registry_jsonpath = registry_jsonpath
+        if cooldown < 0:
+            raise ValueError('cooldown must be zero or greater')
+        self._cooldown = timedelta(days=cooldown)
         # solve container issue
         if 'GITHUB_OUTPUT' in os.environ:
             subprocess.check_call(['git', 'config', '--global', '--add', 'safe.directory', '/github/workspace'])
@@ -344,6 +362,7 @@ class CLI:
         return r
 
     def check_image(self, stack, image, tag, tag_regex=None):
+        image_reference = image
         tag_filter = None
         if tag_regex is not None:
             try:
@@ -383,6 +402,21 @@ class CLI:
                 if len(current_version) == len(new_version) and new_version > current_version:
                     newer_tags.append((new_version, tag))
         newer_tags.sort()
+        if newer_tags and self._cooldown.days:
+            newest_tag = newer_tags[-1][1]
+            created = self._image_created_at(image_reference, newest_tag)
+            if created is None:
+                raise ValueError(
+                    f'Could not find a registry upload or image created timestamp for '
+                    f'{image_reference}:{newest_tag}; use cooldown 0 if you want to use this registry'
+                )
+            eligible_at = created + self._cooldown
+            if datetime.now(timezone.utc) < eligible_at:
+                print(
+                    f'::notice file={stack.relative_to(self.repo_dir)}::Skipping {image_reference}:{newest_tag}; '
+                    f'cooldown expires at {eligible_at.isoformat()}'
+                )
+                return []
         return newer_tags
 
     @staticmethod
@@ -431,6 +465,18 @@ class CLI:
         return response
 
     def _image_metadata(self, image, tag):
+        config = self._image_config(image, tag)
+        if not config:
+            return None, None
+        labels = config.get('config', {}).get('Labels') or {}
+        source = labels.get('org.opencontainers.image.source')
+        if not source:
+            return None, labels.get('org.opencontainers.image.version')
+        match = re.fullmatch(r'https?://github\.com/([^/]+)/([^/#]+?)(?:\.git)?/?', source)
+        return (f'{match[1]}/{match[2]}' if match else None), labels.get('org.opencontainers.image.version')
+
+    @lru_cache(maxsize=1024)
+    def _image_config(self, image, tag):
         registry, repository = self._registry_location(image)
         base = f'https://{registry}/v2/{repository}'
         manifest_headers = {
@@ -459,14 +505,151 @@ class CLI:
             manifest = self._registry_request(f'{base}/manifests/{digest}', repository, manifest_headers).json()
         config_digest = manifest.get('config', {}).get('digest')
         if not config_digest:
-            return None, None
-        config = self._registry_request(f'{base}/blobs/{config_digest}', repository).json()
-        labels = config.get('config', {}).get('Labels') or {}
-        source = labels.get('org.opencontainers.image.source')
-        if not source:
-            return None, labels.get('org.opencontainers.image.version')
-        match = re.fullmatch(r'https?://github\.com/([^/]+)/([^/#]+?)(?:\.git)?/?', source)
-        return (f'{match[1]}/{match[2]}' if match else None), labels.get('org.opencontainers.image.version')
+            return None
+        return self._registry_request(f'{base}/blobs/{config_digest}', repository).json()
+
+    @staticmethod
+    def _parse_registry_timestamp(payload):
+        if isinstance(payload, dict):
+            for field in REGISTRY_TIMESTAMP_FIELDS:
+                value = payload.get(field)
+                if value is None or value == '':
+                    continue
+                try:
+                    if isinstance(value, (int, float)):
+                        return datetime.fromtimestamp(value, timezone.utc)
+                    try:
+                        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                    except ValueError:
+                        parsed = parsedate_to_datetime(value)
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    return parsed.astimezone(timezone.utc)
+                except (OverflowError, TypeError, ValueError):
+                    continue
+        return None
+
+    def _docker_hub_tag_metadata(self, repository, tag):
+        namespace, name = repository.split('/', 1)
+        response = requests.get(
+            f'https://hub.docker.com/v2/repositories/{quote(namespace, safe="")}/'
+            f'{quote(name, safe="")}/tags/{quote(tag, safe="")}'
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _quay_tag_metadata(self, repository, tag):
+        response = requests.get(
+            f'https://quay.io/api/v1/repository/{quote(repository, safe="/")}/tag/',
+            params={'specificTag': tag},
+        )
+        response.raise_for_status()
+        return next((item for item in response.json().get('tags', []) if item.get('name') == tag), None)
+
+    def _ghcr_tag_metadata(self, repository, tag):
+        if not self._token or '/' not in repository:
+            return None
+        owner, package = repository.split('/', 1)
+        headers = {
+            'Accept': 'application/vnd.github+json',
+            'Authorization': f'Bearer {self._token}',
+        }
+        for owner_type in ('users', 'orgs'):
+            url = (
+                f'https://api.github.com/{owner_type}/{quote(owner, safe="")}/packages/container/'
+                f'{quote(package, safe="")}/versions'
+            )
+            params = {'per_page': 100}
+            while url:
+                response = requests.get(url, headers=headers, params=params)
+                params = None
+                if response.status_code == 404:
+                    break
+                if response.status_code in (401, 403):
+                    return None
+                response.raise_for_status()
+                for version in response.json():
+                    tags = version.get('metadata', {}).get('container', {}).get('tags') or []
+                    if tag in tags:
+                        return version
+                url = response.links.get('next', {}).get('url')
+        return None
+
+    @staticmethod
+    def _aws_signing_key(secret, date, region, service):
+        def sign(key, value):
+            return hmac.new(key, value.encode(), hashlib.sha256).digest()
+
+        date_key = sign(('AWS4' + secret).encode(), date)
+        region_key = sign(date_key, region)
+        service_key = sign(region_key, service)
+        return sign(service_key, 'aws4_request')
+
+    def _ecr_tag_metadata(self, registry, repository, tag):
+        match = re.fullmatch(r'\d+\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com(?:\.cn)?', registry)
+        access_key = os.getenv('AWS_ACCESS_KEY_ID')
+        secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+        if not match or not access_key or not secret_key:
+            return None
+        region = match[1]
+        service = 'ecr'
+        suffix = 'amazonaws.com.cn' if registry.endswith('.cn') else 'amazonaws.com'
+        host = f'api.ecr.{region}.{suffix}'
+        url = f'https://{host}/'
+        body = json.dumps({'repositoryName': repository, 'imageIds': [{'imageTag': tag}]}, separators=(',', ':'))
+        now = datetime.now(timezone.utc)
+        amz_date = now.strftime('%Y%m%dT%H%M%SZ')
+        date = now.strftime('%Y%m%d')
+        headers = {
+            'Content-Type': 'application/x-amz-json-1.1',
+            'Host': host,
+            'X-Amz-Date': amz_date,
+            'X-Amz-Target': 'AmazonEC2ContainerRegistry_V20150921.DescribeImages',
+        }
+        session_token = os.getenv('AWS_SESSION_TOKEN')
+        if session_token:
+            headers['X-Amz-Security-Token'] = session_token
+        signed_names = ';'.join(sorted(name.lower() for name in headers))
+        canonical_headers = ''.join(f'{name.lower()}:{headers[name]}\n' for name in sorted(headers, key=str.lower))
+        payload_hash = hashlib.sha256(body.encode()).hexdigest()
+        canonical_request = f'POST\n/\n\n{canonical_headers}\n{signed_names}\n{payload_hash}'
+        scope = f'{date}/{region}/{service}/aws4_request'
+        string_to_sign = (
+            f'AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{hashlib.sha256(canonical_request.encode()).hexdigest()}'
+        )
+        signature = hmac.new(
+            self._aws_signing_key(secret_key, date, region, service), string_to_sign.encode(), hashlib.sha256
+        ).hexdigest()
+        headers['Authorization'] = (
+            f'AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed_names}, Signature={signature}'
+        )
+        response = requests.post(url, data=body, headers=headers)
+        response.raise_for_status()
+        images = response.json().get('imageDetails', [])
+        return images[0] if images else None
+
+    def _image_created_at(self, image, tag):
+        registry, repository = self._registry_location(image)
+        try:
+            metadata = None
+            if registry in ('index.docker.io', 'docker.io'):
+                metadata = self._docker_hub_tag_metadata(repository, tag)
+            elif registry == 'quay.io':
+                metadata = self._quay_tag_metadata(repository, tag)
+            elif registry == 'ghcr.io':
+                metadata = self._ghcr_tag_metadata(repository, tag)
+            elif '.dkr.ecr.' in registry:
+                metadata = self._ecr_tag_metadata(registry, repository, tag)
+            pushed_at = self._parse_registry_timestamp(metadata)
+            if pushed_at:
+                return pushed_at
+        except (TypeError, ValueError, requests.RequestException):
+            pass
+        try:
+            config = self._image_config(image, tag)
+            return self._parse_registry_timestamp(config)
+        except (TypeError, ValueError, requests.RequestException):
+            return None
 
     def _github_release_notes(self, image, old_tag, new_tag, source_override=None, version_regex=None):
         """Get GitHub release notes using explicit mapping or OCI source metadata."""
@@ -752,6 +935,12 @@ def build_parser():
     )
     p.add_argument('--repo', type=str, default=os.getenv('GITHUB_REPOSITORY'), help='Github project being updated')
     p.add_argument(
+        '--cooldown',
+        type=int,
+        default=int(os.getenv('INPUT_COOLDOWN', '3')),
+        help='Minimum age in days for image versions to be eligible (0 disables the cooldown)',
+    )
+    p.add_argument(
         '--file-match',
         type=str,
         default=os.getenv('INPUT_FILE-MATCH', '**/docker-compose*.y*ml'),
@@ -780,6 +969,8 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if args.cooldown < 0:
+        raise ValueError('--cooldown must be zero or greater')
     extra_fields = None if not args.extra_fields else json.loads(args.extra_fields)
     c = CLI(
         args.token,
@@ -789,6 +980,7 @@ def main(argv=None):
         args.image_name_jsonpath,
         args.image_tag_jsonpath,
         args.image_registry_jsonpath,
+        args.cooldown,
     )
     if os.getenv('INPUT_DRY', 'false') == 'true':
         args.dry = True

@@ -1,9 +1,11 @@
+import io
 import json
 import os
 import shutil
 import tempfile
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -21,6 +23,7 @@ class Test(unittest.TestCase):
                 'GITHUB_REPOSITORY': 'test/repo',
                 'GITHUB_OUTPUT': str(self.out_file),
                 'INPUT_TOKEN': 'xxx',
+                'INPUT_COOLDOWN': '0',
             }
         )
         self._req_patch = mock.patch('entrypoint.requests')
@@ -75,6 +78,53 @@ class Test(unittest.TestCase):
                 mock.call('https://ghcr.io/v2/whatever/tags/list?n=x', headers={'Authorization': 'Bearer auth_token'}),
             ]
         )
+
+    def test_cooldown_skips_recent_tags_but_allows_mature_tags(self):
+        cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None, cooldown=3)
+        now = datetime.now(timezone.utc)
+        output = io.StringIO()
+        with (
+            mock.patch('entrypoint.get_tags', return_value=['1.2.0', '1.3.0']),
+            mock.patch.object(cli, '_image_created_at', return_value=now - timedelta(days=1)) as created_at,
+            redirect_stdout(output),
+        ):
+            self.assertEqual(cli.check_image(cli.repo_dir / 'compose.yml', 'example/image', '1.1.0'), [])
+        created_at.assert_called_once_with('example/image', '1.3.0')
+        self.assertIn('Skipping example/image:1.3.0', output.getvalue())
+        self.assertIn('cooldown expires at', output.getvalue())
+
+        with (
+            mock.patch('entrypoint.get_tags', return_value=['1.2.0', '1.3.0']),
+            mock.patch.object(cli, '_image_created_at', return_value=now - timedelta(days=4)),
+        ):
+            self.assertEqual(
+                cli.check_image(cli.repo_dir / 'compose.yml', 'example/image', '1.1.0'),
+                [((1, 2, 0), '1.2.0'), ((1, 3, 0), '1.3.0')],
+            )
+
+    def test_cooldown_errors_when_no_timestamp_is_available(self):
+        cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None, cooldown=3)
+        with (
+            mock.patch('entrypoint.get_tags', return_value=['1.2.0']),
+            mock.patch.object(cli, '_image_created_at', return_value=None),
+            self.assertRaisesRegex(ValueError, 'use cooldown 0 if you want to use this registry'),
+        ):
+            cli.check_image(cli.repo_dir / 'compose.yml', 'example/image', '1.1.0')
+
+    def test_registry_timestamp_fields_accept_common_formats(self):
+        values = {
+            'tag_last_pushed': '2026-11-01T12:00:00Z',
+            'imagePushedAt': 1793534400,
+            'created_at': '2026-11-01T12:00:00Z',
+            'updated_at': '2026-11-01T12:00:00Z',
+            'last_updated': '2026-11-01T12:00:00Z',
+            'start_ts': 1793534400,
+            'last_modified': 'Sun, 01 Nov 2026 12:00:00 +0000',
+            'created': '2026-11-01T12:00:00Z',
+        }
+        for field, value in values.items():
+            with self.subTest(field=field):
+                self.assertIsNotNone(entrypoint.CLI._parse_registry_timestamp({field: value}))
 
     def test_github_release_notes_between_image_versions(self):
         cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None)
