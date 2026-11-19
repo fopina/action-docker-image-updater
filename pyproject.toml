@@ -1,3 +1,30 @@
+[build-system]
+requires = ["setuptools>=69.5.0,<80.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "action-docker-image-updater"
+version = "0.1.0"
+description = "GitHub Action to update Docker image references"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "jsonpath-ng",
+    "requests>=2,<3",
+    "ruamel-yaml",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-socket",
+    "ruff",
+]
+
+[tool.setuptools]
+py-modules = ["entrypoint"]
+
 [tool.ruff]
 line-length = 120
 indent-width = 4
