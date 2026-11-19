@@ -13,6 +13,9 @@ import jsonpath_ng
 import requests
 from ruamel.yaml import YAML
 
+MAX_PR_BODY_LENGTH = 60_000
+MAX_RELEASE_NOTE_LINES_PER_IMAGE = 10
+
 yaml = YAML()
 
 
@@ -525,16 +528,26 @@ class CLI:
                 selected = releases[new_index:old_index]
                 from_ref = releases[old_index].get('tag_name')
                 to_ref = releases[new_index].get('tag_name')
-            parts = [
-                f'### {image}: {old_tag} → {new_tag}',
-                f'[Compare changes](https://github.com/{source}/compare/{quote(from_ref, safe="")}...{quote(to_ref, safe="")})',
-            ]
+            compare_link = (
+                f'[View full diff](https://github.com/{source}/compare/'
+                f'{quote(from_ref, safe="")}...{quote(to_ref, safe="")})'
+            )
+            parts = [f'### {image}: {old_tag} → {new_tag}']
+            note_lines = []
             for release in reversed(selected):
                 title = release.get('name') or release.get('tag_name')
                 url = release.get('html_url')
                 heading = f'[{title}]({url})' if url else title
                 body = (release.get('body') or '').strip()
-                parts.append(f'#### {heading}\n{body}' if body else f'#### {heading}')
+                note_lines.append(f'**{heading}**')
+                if body:
+                    note_lines.extend(body.splitlines())
+            if note_lines:
+                if len(note_lines) > MAX_RELEASE_NOTE_LINES_PER_IMAGE:
+                    note_lines = note_lines[: MAX_RELEASE_NOTE_LINES_PER_IMAGE - 1]
+                    note_lines.append('_… truncated; see the full diff below._')
+                parts.append('#### Release notes\n' + '\n'.join(note_lines))
+            parts.append(compare_link)
             return '\n\n'.join(parts)
         except Exception as exc:
             print(f'::warning::Could not fetch release notes for {image}: {exc}')
@@ -633,7 +646,18 @@ class CLI:
         stack.write_text(s)
         body = '\n'.join(cksum)
         if release_notes:
-            body += '\n\n## Release notes\n\n' + '\n\n'.join(release_notes)
+            section = '\n\n## Release notes\n\n'
+            notes = '\n\n'.join(release_notes)
+            truncation_marker = '\n\n_[Release notes truncated to fit the pull request description limit.]_'
+            available = MAX_PR_BODY_LENGTH - len(body)
+            if len(section) + len(notes) <= available:
+                body += section + notes
+            elif available >= len(section) + len(truncation_marker):
+                note_budget = available - len(section) - len(truncation_marker)
+                notes = notes[:note_budget].rsplit('\n', 1)[0].rstrip() if note_budget else ''
+                body += section + notes + truncation_marker
+            elif available >= len(truncation_marker):
+                body += truncation_marker
         self.create_branch_and_mr(stack, branch, body=body)
         subprocess.check_call(['git', 'checkout', self._base_revision])
         return True, branch
