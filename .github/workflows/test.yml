@@ -15,9 +15,8 @@ jobs:
 
       - name: Setup venv
         run: |
-          pip install pipenv
-          pipenv requirements --dev > reqs.txt
-          pip install -r reqs.txt
+          pip install uv
+          uv sync --dev
 
       - name: Lint check
         id: lint-check

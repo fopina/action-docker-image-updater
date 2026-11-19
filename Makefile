@@ -1,13 +1,13 @@
 lint:
-	ruff format
-	ruff check --fix
+	uv run ruff format
+	uv run ruff check --fix
 
 lint-check:
-	ruff format --diff
-	ruff check
+	uv run ruff format --diff
+	uv run ruff check
 
 test:
-	python -m pytest --cov
+	uv run python -m pytest --cov
 
 dry-sample:
 	./entrypoint.py --dry --extra-fields '{"portainer_version": "portainer/portainer-ce:?-alpine", "portainer_agent_version": "portainer/agent:?-alpine"}' --file-match '**/*.y*ml'
