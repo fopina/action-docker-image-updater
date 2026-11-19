@@ -102,6 +102,30 @@ class Test(unittest.TestCase):
                 [((1, 2, 0), '1.2.0'), ((1, 3, 0), '1.3.0')],
             )
 
+    def test_cooldown_errors_when_no_timestamp_is_available(self):
+        cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None, cooldown=3)
+        with (
+            mock.patch('entrypoint.get_tags', return_value=['1.2.0']),
+            mock.patch.object(cli, '_image_created_at', return_value=None),
+            self.assertRaisesRegex(ValueError, 'use cooldown 0 if you want to use this registry'),
+        ):
+            cli.check_image(cli.repo_dir / 'compose.yml', 'example/image', '1.1.0')
+
+    def test_registry_timestamp_fields_accept_common_formats(self):
+        values = {
+            'tag_last_pushed': '2026-11-01T12:00:00Z',
+            'imagePushedAt': 1793534400,
+            'created_at': '2026-11-01T12:00:00Z',
+            'updated_at': '2026-11-01T12:00:00Z',
+            'last_updated': '2026-11-01T12:00:00Z',
+            'start_ts': 1793534400,
+            'last_modified': 'Sun, 01 Nov 2026 12:00:00 +0000',
+            'created': '2026-11-01T12:00:00Z',
+        }
+        for field, value in values.items():
+            with self.subTest(field=field):
+                self.assertIsNotNone(entrypoint.CLI._parse_registry_timestamp({field: value}))
+
     def test_github_release_notes_between_image_versions(self):
         cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None)
         cli._image_metadata = mock.Mock(side_effect=[('owner/project', 'v1.0.0'), ('owner/project', 'v2.0.0')])

@@ -1,11 +1,13 @@
 #!/usr/bin/env -S python3 -u
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import re
 import subprocess
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from functools import cached_property, lru_cache
 from pathlib import Path
 from urllib.parse import quote
@@ -16,6 +18,16 @@ from ruamel.yaml import YAML
 
 MAX_PR_BODY_LENGTH = 60_000
 MAX_RELEASE_NOTE_LINES_PER_IMAGE = 10
+REGISTRY_TIMESTAMP_FIELDS = [
+    'tag_last_pushed',  # Docker Hub tag schema: https://docs.docker.com/reference/api/hub/latest/schemas/tag/
+    'imagePushedAt',  # Amazon ECR DescribeImages: https://docs.aws.amazon.com/AmazonECR/latest/APIReference/API_DescribeImages.html
+    'created_at',  # GitHub Packages version schema: https://docs.github.com/en/rest/packages/packages
+    'updated_at',  # GitHub Packages version schema: https://docs.github.com/en/rest/packages/packages
+    'last_updated',  # Docker Hub tag schema: https://docs.docker.com/reference/api/hub/latest/schemas/tag/
+    'start_ts',  # Quay tag API response: https://github.com/quay/quay/discussions/1807
+    'last_modified',  # Quay tag API response: https://github.com/quay/quay/discussions/1807
+    'created',  # OCI image config: https://github.com/opencontainers/image-spec/blob/main/config.md
+]
 
 yaml = YAML()
 
@@ -392,13 +404,12 @@ class CLI:
         newer_tags.sort()
         if newer_tags and self._cooldown.days:
             newest_tag = newer_tags[-1][1]
-            created = self._image_created_at(image, newest_tag)
+            created = self._image_created_at(image_reference, newest_tag)
             if created is None:
-                print(
-                    f'::notice file={stack.relative_to(self.repo_dir)}::Skipping {image_reference}:{newest_tag}; '
-                    'cooldown cannot be checked because the image has no readable OCI created timestamp'
+                raise ValueError(
+                    f'Could not find a registry upload or image created timestamp for '
+                    f'{image_reference}:{newest_tag}; use cooldown 0 if you want to use this registry'
                 )
-                return []
             eligible_at = created + self._cooldown
             if datetime.now(timezone.utc) < eligible_at:
                 print(
@@ -497,13 +508,146 @@ class CLI:
             return None
         return self._registry_request(f'{base}/blobs/{config_digest}', repository).json()
 
+    @staticmethod
+    def _parse_registry_timestamp(payload):
+        if isinstance(payload, dict):
+            for field in REGISTRY_TIMESTAMP_FIELDS:
+                value = payload.get(field)
+                if value is None or value == '':
+                    continue
+                try:
+                    if isinstance(value, (int, float)):
+                        return datetime.fromtimestamp(value, timezone.utc)
+                    try:
+                        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                    except ValueError:
+                        parsed = parsedate_to_datetime(value)
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    return parsed.astimezone(timezone.utc)
+                except (OverflowError, TypeError, ValueError):
+                    continue
+        return None
+
+    def _docker_hub_tag_metadata(self, repository, tag):
+        namespace, name = repository.split('/', 1)
+        response = requests.get(
+            f'https://hub.docker.com/v2/repositories/{quote(namespace, safe="")}/'
+            f'{quote(name, safe="")}/tags/{quote(tag, safe="")}'
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _quay_tag_metadata(self, repository, tag):
+        response = requests.get(
+            f'https://quay.io/api/v1/repository/{quote(repository, safe="/")}/tag/',
+            params={'specificTag': tag},
+        )
+        response.raise_for_status()
+        return next((item for item in response.json().get('tags', []) if item.get('name') == tag), None)
+
+    def _ghcr_tag_metadata(self, repository, tag):
+        if not self._token or '/' not in repository:
+            return None
+        owner, package = repository.split('/', 1)
+        headers = {
+            'Accept': 'application/vnd.github+json',
+            'Authorization': f'Bearer {self._token}',
+        }
+        for owner_type in ('users', 'orgs'):
+            url = (
+                f'https://api.github.com/{owner_type}/{quote(owner, safe="")}/packages/container/'
+                f'{quote(package, safe="")}/versions'
+            )
+            params = {'per_page': 100}
+            while url:
+                response = requests.get(url, headers=headers, params=params)
+                params = None
+                if response.status_code == 404:
+                    break
+                if response.status_code in (401, 403):
+                    return None
+                response.raise_for_status()
+                for version in response.json():
+                    tags = version.get('metadata', {}).get('container', {}).get('tags') or []
+                    if tag in tags:
+                        return version
+                url = response.links.get('next', {}).get('url')
+        return None
+
+    @staticmethod
+    def _aws_signing_key(secret, date, region, service):
+        def sign(key, value):
+            return hmac.new(key, value.encode(), hashlib.sha256).digest()
+
+        date_key = sign(('AWS4' + secret).encode(), date)
+        region_key = sign(date_key, region)
+        service_key = sign(region_key, service)
+        return sign(service_key, 'aws4_request')
+
+    def _ecr_tag_metadata(self, registry, repository, tag):
+        match = re.fullmatch(r'\d+\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com(?:\.cn)?', registry)
+        access_key = os.getenv('AWS_ACCESS_KEY_ID')
+        secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+        if not match or not access_key or not secret_key:
+            return None
+        region = match[1]
+        service = 'ecr'
+        suffix = 'amazonaws.com.cn' if registry.endswith('.cn') else 'amazonaws.com'
+        host = f'api.ecr.{region}.{suffix}'
+        url = f'https://{host}/'
+        body = json.dumps({'repositoryName': repository, 'imageIds': [{'imageTag': tag}]}, separators=(',', ':'))
+        now = datetime.now(timezone.utc)
+        amz_date = now.strftime('%Y%m%dT%H%M%SZ')
+        date = now.strftime('%Y%m%d')
+        headers = {
+            'Content-Type': 'application/x-amz-json-1.1',
+            'Host': host,
+            'X-Amz-Date': amz_date,
+            'X-Amz-Target': 'AmazonEC2ContainerRegistry_V20150921.DescribeImages',
+        }
+        session_token = os.getenv('AWS_SESSION_TOKEN')
+        if session_token:
+            headers['X-Amz-Security-Token'] = session_token
+        signed_names = ';'.join(sorted(name.lower() for name in headers))
+        canonical_headers = ''.join(f'{name.lower()}:{headers[name]}\n' for name in sorted(headers, key=str.lower))
+        payload_hash = hashlib.sha256(body.encode()).hexdigest()
+        canonical_request = f'POST\n/\n\n{canonical_headers}\n{signed_names}\n{payload_hash}'
+        scope = f'{date}/{region}/{service}/aws4_request'
+        string_to_sign = (
+            f'AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{hashlib.sha256(canonical_request.encode()).hexdigest()}'
+        )
+        signature = hmac.new(
+            self._aws_signing_key(secret_key, date, region, service), string_to_sign.encode(), hashlib.sha256
+        ).hexdigest()
+        headers['Authorization'] = (
+            f'AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed_names}, Signature={signature}'
+        )
+        response = requests.post(url, data=body, headers=headers)
+        response.raise_for_status()
+        images = response.json().get('imageDetails', [])
+        return images[0] if images else None
+
     def _image_created_at(self, image, tag):
+        registry, repository = self._registry_location(image)
+        try:
+            metadata = None
+            if registry in ('index.docker.io', 'docker.io'):
+                metadata = self._docker_hub_tag_metadata(repository, tag)
+            elif registry == 'quay.io':
+                metadata = self._quay_tag_metadata(repository, tag)
+            elif registry == 'ghcr.io':
+                metadata = self._ghcr_tag_metadata(repository, tag)
+            elif '.dkr.ecr.' in registry:
+                metadata = self._ecr_tag_metadata(registry, repository, tag)
+            pushed_at = self._parse_registry_timestamp(metadata)
+            if pushed_at:
+                return pushed_at
+        except (TypeError, ValueError, requests.RequestException):
+            pass
         try:
             config = self._image_config(image, tag)
-            created = config.get('created') if config else None
-            if not created:
-                return None
-            return datetime.fromisoformat(created.replace('Z', '+00:00')).astimezone(timezone.utc)
+            return self._parse_registry_timestamp(config)
         except (TypeError, ValueError, requests.RequestException):
             return None
 
