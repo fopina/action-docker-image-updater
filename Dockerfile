@@ -1,4 +1,4 @@
-FROM python:3.14.5-alpine AS base
+FROM python:3.15.2-alpine AS base
 RUN pip install --no-cache-dir uv
 
 # --- builder
