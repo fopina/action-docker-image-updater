@@ -7,7 +7,7 @@ on:
       - .github/**
 
 jobs:
-  tests:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -19,22 +19,25 @@ jobs:
           uv sync --dev
 
       - name: Lint check
-        id: lint-check
-        # allow unit tests to run even if this fails
-        continue-on-error: true
         run: |
           make lint-check
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup venv
+        run: |
+          pip install pipenv
+          pipenv requirements --dev > reqs.txt
+          pip install -r reqs.txt
 
       - name: Run unit tests
         run: |
           make test
-      
-      - name: Final check
-        if: ${{ steps.lint-check.outcome == 'failure' }}
-        run: |
-          echo Lint check failed, check its log
-          exit 1
-     
+
       - name: Force local build
         run: |
           sed -i 's/^  image\:.*/  image\: Dockerfile/g' action.yml  

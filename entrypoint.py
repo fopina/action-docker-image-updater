@@ -1,11 +1,11 @@
 #!/usr/bin/env -S python3 -u
 import argparse
-from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
 import re
 import subprocess
+from datetime import datetime, timedelta, timezone
 from functools import cached_property, lru_cache
 from pathlib import Path
 from urllib.parse import quote
@@ -99,7 +99,9 @@ class ImageReference(tuple):
 
 
 class CLI:
-    def __init__(self, token, repo, file_match, extra_fields, image_jsonpath, tag_jsonpath, registry_jsonpath, cooldown=3):
+    def __init__(
+        self, token, repo, file_match, extra_fields, image_jsonpath, tag_jsonpath, registry_jsonpath, cooldown=3
+    ):
         self._token = token
         self._repo = repo
         self._glob = file_match

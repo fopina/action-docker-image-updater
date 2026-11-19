@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import unittest
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -27,6 +28,10 @@ class Test(unittest.TestCase):
         self.req_mock = self._req_patch.start()
         self._process_patch = mock.patch('entrypoint.subprocess')
         self.sp_mock = self._process_patch.start()
+        self._created_patch = mock.patch(
+            'entrypoint.CLI._image_created_at', return_value=datetime.now(timezone.utc) - timedelta(days=4)
+        )
+        self._created_patch.start()
         entrypoint.get_tags.cache_clear()
 
     def tearDown(self) -> None:
@@ -34,6 +39,7 @@ class Test(unittest.TestCase):
         self.out_file.unlink()
         self._req_patch.stop()
         self._process_patch.stop()
+        self._created_patch.stop()
 
     def load_plan(self):
         data = self.out_file.read_text().strip()
@@ -75,6 +81,15 @@ class Test(unittest.TestCase):
                 mock.call('https://ghcr.io/v2/whatever/tags/list?n=x', headers={'Authorization': 'Bearer auth_token'}),
             ]
         )
+
+    def test_cooldown_skips_recent_tags_but_allows_mature_tags(self):
+        cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None, cooldown=3)
+        now = datetime.now(timezone.utc)
+        with (
+            mock.patch('entrypoint.get_tags', return_value=['1.2.0', '1.3.0']),
+            mock.patch.object(cli, '_image_created_at', side_effect=[now - timedelta(days=1), now - timedelta(days=4)]),
+        ):
+            self.assertEqual(cli.check_image(Path('compose.yml'), 'example/image', '1.1.0'), [((1, 3, 0), '1.3.0')])
 
     def test_github_release_notes_between_image_versions(self):
         cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None)

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -15,6 +16,10 @@ class TestTagRegex(unittest.TestCase):
             self.cli = entrypoint.CLI(None, None, '*.yaml', None, None, None, None)
         self.cli.repo_dir = Path(self.tmp.name)
         self.cli.branches = ''
+        self.created = mock.patch(
+            'entrypoint.CLI._image_created_at', return_value=datetime.now(timezone.utc) - timedelta(days=4)
+        )
+        self.created.start()
         self.tags = mock.patch('entrypoint.get_tags', return_value=['4.1.0', '4.1.2', '2021.11.18']).start()
         self.addCleanup(mock.patch.stopall)
 
