@@ -130,7 +130,7 @@ class CLI:
 
     def _check_declaration(self, stack, lines, line, image, tag):
         # Only the immediately preceding comment block at the field's indentation
-        # belongs to this declaration. The legacy named disable remains file-wide.
+        # belongs to this declaration. Named disables remain file-wide.
         indent = len(lines[line]) - len(lines[line].lstrip())
         directives = []
         for previous in reversed(lines[:line]):
@@ -139,8 +139,21 @@ class CLI:
             match = re.fullmatch(r'\s*# autoupdater: (.*)', previous)
             if match:
                 directives.append(match[1].strip())
-        legacy_disabled = any(text.strip() == f'# autoupdater: disable {image}' for text in lines)
-        if 'disable' in directives or legacy_disabled:
+        named_disabled = False
+        legacy_named_disabled = False
+        for text in lines:
+            match = re.fullmatch(r'\s*# autoupdater: disable(?:=(\S+)|\s+(\S+))\s*', text)
+            if not match:
+                continue
+            modern_name, legacy_name = match.groups()
+            if image == (modern_name or legacy_name):
+                named_disabled = True
+                legacy_named_disabled |= legacy_name is not None
+        if legacy_named_disabled:
+            print(
+                f'::notice file={stack.relative_to(self.repo_dir)}::The "autoupdater: disable {image}" syntax is deprecated; use "autoupdater: disable={image}" instead. The space-separated form will be removed in a future release.'
+            )
+        if 'disable' in directives or named_disabled:
             print(f'::notice file={stack.relative_to(self.repo_dir)}::Image {image} with autoupdate disabled')
             return None
         regexps = [directive[len('tag-regex=') :] for directive in directives if directive.startswith('tag-regex=')]
