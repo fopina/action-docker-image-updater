@@ -185,9 +185,8 @@ regexp, tag selection is unchanged.
 
 Invalid expressions, duplicate regexp directives, and a current tag that doesn't
 match cause an error and skip the file, with a nonzero exit status (including dry
-runs). `# autoupdater: disable` in the same comment block takes precedence. The
-legacy `# autoupdater: disable IMAGE_NAME` form continues to disable that image
-throughout the file.
+runs). `# autoupdater: disable` in the same comment block takes precedence. To
+disable a named image throughout the file, use `# autoupdater: disable=IMAGE_NAME`.
 
 ## Map images to upstream GitHub releases
 
