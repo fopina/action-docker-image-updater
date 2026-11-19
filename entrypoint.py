@@ -350,6 +350,7 @@ class CLI:
         return r
 
     def check_image(self, stack, image, tag, tag_regex=None):
+        image_reference = image
         tag_filter = None
         if tag_regex is not None:
             try:
@@ -390,7 +391,18 @@ class CLI:
                 if len(current_version) == len(new_version) and new_version > current_version:
                     if self._cooldown.days:
                         created = self._image_created_at(image, tag)
-                        if created is None or now - created < self._cooldown:
+                        if created is None:
+                            print(
+                                f'::notice file={stack.relative_to(self.repo_dir)}::Skipping {image_reference}:{tag}; '
+                                'cooldown cannot be checked because the image has no readable OCI created timestamp'
+                            )
+                            continue
+                        eligible_at = created + self._cooldown
+                        if now < eligible_at:
+                            print(
+                                f'::notice file={stack.relative_to(self.repo_dir)}::Skipping {image_reference}:{tag}; '
+                                f'cooldown expires at {eligible_at.isoformat()}'
+                            )
                             continue
                     newer_tags.append((new_version, tag))
         newer_tags.sort()

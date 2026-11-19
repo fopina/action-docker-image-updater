@@ -1,9 +1,10 @@
+import io
 import json
 import os
 import shutil
 import tempfile
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -85,11 +86,17 @@ class Test(unittest.TestCase):
     def test_cooldown_skips_recent_tags_but_allows_mature_tags(self):
         cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None, cooldown=3)
         now = datetime.now(timezone.utc)
+        output = io.StringIO()
         with (
             mock.patch('entrypoint.get_tags', return_value=['1.2.0', '1.3.0']),
             mock.patch.object(cli, '_image_created_at', side_effect=[now - timedelta(days=1), now - timedelta(days=4)]),
+            redirect_stdout(output),
         ):
-            self.assertEqual(cli.check_image(Path('compose.yml'), 'example/image', '1.1.0'), [((1, 3, 0), '1.3.0')])
+            self.assertEqual(
+                cli.check_image(cli.repo_dir / 'compose.yml', 'example/image', '1.1.0'), [((1, 3, 0), '1.3.0')]
+            )
+        self.assertIn('Skipping example/image:1.2.0', output.getvalue())
+        self.assertIn('cooldown expires at', output.getvalue())
 
     def test_github_release_notes_between_image_versions(self):
         cli = entrypoint.CLI('token', 'test/repo', '**/*.yml', None, None, None, None)
