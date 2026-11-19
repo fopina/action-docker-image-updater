@@ -77,4 +77,4 @@ jobs:
         env:
           STEPS_CONTEXT: ${{ toJson(steps) }}
         run: |
-          pytest tests/integration.py
+          uv run pytest tests/integration.py
