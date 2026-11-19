@@ -1,5 +1,6 @@
 #!/usr/bin/env -S python3 -u
 import argparse
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -98,7 +99,7 @@ class ImageReference(tuple):
 
 
 class CLI:
-    def __init__(self, token, repo, file_match, extra_fields, image_jsonpath, tag_jsonpath, registry_jsonpath):
+    def __init__(self, token, repo, file_match, extra_fields, image_jsonpath, tag_jsonpath, registry_jsonpath, cooldown=3):
         self._token = token
         self._repo = repo
         self._glob = file_match
@@ -110,6 +111,9 @@ class CLI:
         self._image_jsonpath = image_jsonpath
         self._tag_jsonpath = tag_jsonpath
         self._registry_jsonpath = registry_jsonpath
+        if cooldown < 0:
+            raise ValueError('cooldown must be zero or greater')
+        self._cooldown = timedelta(days=cooldown)
         # solve container issue
         if 'GITHUB_OUTPUT' in os.environ:
             subprocess.check_call(['git', 'config', '--global', '--add', 'safe.directory', '/github/workspace'])
@@ -374,6 +378,7 @@ class CLI:
             repository = f'library/{repository}'
         tags = get_tags(registry, repository)
         newer_tags = []
+        now = datetime.now(timezone.utc)
         for tag in tags:
             if tag_filter is not None and not tag_filter.fullmatch(tag):
                 continue
@@ -381,6 +386,10 @@ class CLI:
             if mp:
                 new_version = self.version_tuple(mp.group(1))
                 if len(current_version) == len(new_version) and new_version > current_version:
+                    if self._cooldown.days:
+                        created = self._image_created_at(image, tag)
+                        if created is None or now - created < self._cooldown:
+                            continue
                     newer_tags.append((new_version, tag))
         newer_tags.sort()
         return newer_tags
@@ -431,6 +440,18 @@ class CLI:
         return response
 
     def _image_metadata(self, image, tag):
+        config = self._image_config(image, tag)
+        if not config:
+            return None, None
+        labels = config.get('config', {}).get('Labels') or {}
+        source = labels.get('org.opencontainers.image.source')
+        if not source:
+            return None, labels.get('org.opencontainers.image.version')
+        match = re.fullmatch(r'https?://github\.com/([^/]+)/([^/#]+?)(?:\.git)?/?', source)
+        return (f'{match[1]}/{match[2]}' if match else None), labels.get('org.opencontainers.image.version')
+
+    @lru_cache(maxsize=1024)
+    def _image_config(self, image, tag):
         registry, repository = self._registry_location(image)
         base = f'https://{registry}/v2/{repository}'
         manifest_headers = {
@@ -459,14 +480,18 @@ class CLI:
             manifest = self._registry_request(f'{base}/manifests/{digest}', repository, manifest_headers).json()
         config_digest = manifest.get('config', {}).get('digest')
         if not config_digest:
-            return None, None
-        config = self._registry_request(f'{base}/blobs/{config_digest}', repository).json()
-        labels = config.get('config', {}).get('Labels') or {}
-        source = labels.get('org.opencontainers.image.source')
-        if not source:
-            return None, labels.get('org.opencontainers.image.version')
-        match = re.fullmatch(r'https?://github\.com/([^/]+)/([^/#]+?)(?:\.git)?/?', source)
-        return (f'{match[1]}/{match[2]}' if match else None), labels.get('org.opencontainers.image.version')
+            return None
+        return self._registry_request(f'{base}/blobs/{config_digest}', repository).json()
+
+    def _image_created_at(self, image, tag):
+        try:
+            config = self._image_config(image, tag)
+            created = config.get('created') if config else None
+            if not created:
+                return None
+            return datetime.fromisoformat(created.replace('Z', '+00:00')).astimezone(timezone.utc)
+        except (TypeError, ValueError, requests.RequestException):
+            return None
 
     def _github_release_notes(self, image, old_tag, new_tag, source_override=None, version_regex=None):
         """Get GitHub release notes using explicit mapping or OCI source metadata."""
@@ -752,6 +777,12 @@ def build_parser():
     )
     p.add_argument('--repo', type=str, default=os.getenv('GITHUB_REPOSITORY'), help='Github project being updated')
     p.add_argument(
+        '--cooldown',
+        type=int,
+        default=int(os.getenv('INPUT_COOLDOWN', '3')),
+        help='Minimum age in days for image versions to be eligible (0 disables the cooldown)',
+    )
+    p.add_argument(
         '--file-match',
         type=str,
         default=os.getenv('INPUT_FILE-MATCH', '**/docker-compose*.y*ml'),
@@ -780,6 +811,8 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if args.cooldown < 0:
+        raise ValueError('--cooldown must be zero or greater')
     extra_fields = None if not args.extra_fields else json.loads(args.extra_fields)
     c = CLI(
         args.token,
@@ -789,6 +822,7 @@ def main(argv=None):
         args.image_name_jsonpath,
         args.image_tag_jsonpath,
         args.image_registry_jsonpath,
+        args.cooldown,
     )
     if os.getenv('INPUT_DRY', 'false') == 'true':
         args.dry = True

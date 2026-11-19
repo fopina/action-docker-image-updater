@@ -5,6 +5,8 @@
 
 This action updates Docker image versions inside docker-compose and other YAML files by checking for newer versions available in container registries.
 
+New image versions must have an OCI image configuration `created` timestamp at least three days old before the action will update to them. Set the `cooldown` input to change this window; `0` disables it. Tags without a readable creation timestamp are skipped while cooldown is enabled. This follows Dependabot's default delay for version updates, using the image build time as the available proxy for release age; registries do not expose a standard tag publication time. The action cannot currently identify security fixes in container images to bypass the delay because it has no reliable advisory signal. Parsing release notes would be a heuristic and could miss security patches.
+
 > **Note**  
 > [renovatebot](https://github.com/renovatebot/github-action) looks like the best option to do this, I recommend it over this action.  
 > I only keep it as I did before finding out about it and it has some specific behavior I need.
