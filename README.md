@@ -30,6 +30,16 @@ pull request body budget as a final safeguard.
 
 See [action.yml](action.yml)
 
+## Development
+
+Install the development environment with [uv](https://docs.astral.sh/uv/):
+
+```sh
+uv sync --dev
+make lint-check
+make test
+```
+
 # Scenarios
 
 - [Check docker-compose for image updates](#check-docker-compose-for-image-updates)
