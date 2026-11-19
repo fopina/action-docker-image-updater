@@ -1,21 +1,18 @@
 FROM python:3.14.5-alpine AS base
+RUN pip install --no-cache-dir uv
 
 # --- builder
 FROM base AS builder
-WORKDIR /app
-WORKDIR /
-
-COPY Pipfile.lock .
-RUN pip install pipenv
-RUN pipenv requirements > requirements.txt
-RUN pip install --target=/app -r requirements.txt
+WORKDIR /src
+COPY pyproject.toml uv.lock README.md ./
+COPY entrypoint.py ./
+RUN uv pip install --system --target=/app .
 
 # --- tests
 
 FROM builder AS tests
 
-RUN pipenv requirements --dev > requirements.txt
-RUN pip install --target=/app -r requirements.txt
+RUN uv sync --dev
 
 ENV PYTHONPATH=/app
 WORKDIR /actual
@@ -23,7 +20,7 @@ COPY entrypoint.py /actual/entrypoint.py
 COPY tests /actual/tests
 COPY pyproject.toml /actual/
 
-ENTRYPOINT [ "python", "-m", "pytest", "--cov" ]
+ENTRYPOINT [ "uv", "run", "--project", "/src", "python", "-m", "pytest", "--cov" ]
 
 # --- main
 
