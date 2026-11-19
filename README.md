@@ -17,8 +17,9 @@ Please refer to the [release page](https://github.com/fopina/action-docker-image
 
 When the image source resolves to GitHub, the generated pull request includes a GitHub
 compare link between the installed and proposed versions. If matching published releases
-exist, up to 10 lines of combined release notes are included per image; the compare link
-leads to the full diff. The action discovers the source repository from the image's `org.opencontainers.image.source`
+exist, up to 10 lines of release notes are quoted per image, starting with the target
+release; the compare link leads to the full diff. The action discovers the source
+repository from the image's `org.opencontainers.image.source`
 OCI label and uses `org.opencontainers.image.version` when present to match GitHub release
 tags (otherwise it uses the image tags). This requires the source repository to be a GitHub
 repository and those versions to correspond to published GitHub Releases. Images without

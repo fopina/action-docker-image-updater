@@ -534,18 +534,20 @@ class CLI:
             )
             parts = [f'### {image}: {old_tag} → {new_tag}']
             note_lines = []
-            for release in reversed(selected):
+            # GitHub returns releases newest first, so keep that order to make
+            # the line-limited excerpt prioritize the target release.
+            for release in selected:
                 title = release.get('name') or release.get('tag_name')
                 url = release.get('html_url')
                 heading = f'[{title}]({url})' if url else title
                 body = (release.get('body') or '').strip()
                 note_lines.append(f'**{heading}**')
                 if body:
-                    note_lines.extend(body.splitlines())
+                    note_lines.extend(f'> {line}' if line else '>' for line in body.splitlines())
             if note_lines:
                 if len(note_lines) > MAX_RELEASE_NOTE_LINES_PER_IMAGE:
                     note_lines = note_lines[: MAX_RELEASE_NOTE_LINES_PER_IMAGE - 1]
-                    note_lines.append('_… truncated; see the full diff below._')
+                    note_lines.append('> _… truncated; see the full diff below._')
                 parts.append('#### Release notes\n' + '\n'.join(note_lines))
             parts.append(compare_link)
             return '\n\n'.join(parts)
