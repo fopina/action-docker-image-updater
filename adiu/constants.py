@@ -10,6 +10,3 @@ REGISTRY_TIMESTAMP_FIELDS = [
     'last_modified',  # Quay tag API response: https://github.com/quay/quay/discussions/1807
     'created',  # OCI image config: https://github.com/opencontainers/image-spec/blob/main/config.md
 ]
-
-yaml = YAML()
-

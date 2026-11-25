@@ -61,4 +61,3 @@ def get_tags(registry, repository):
         link = r.headers.get('Link', '')
 
     return tags
-

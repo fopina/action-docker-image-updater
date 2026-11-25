@@ -65,8 +65,12 @@ class CLI:
         self._cooldown = timedelta(days=cooldown)
         # solve container issue
         if 'GITHUB_OUTPUT' in os.environ:
-            _dependency('subprocess', subprocess).check_call(['git', 'config', '--global', '--add', 'safe.directory', '/github/workspace'])
-        self._base_revision = _dependency('subprocess', subprocess).check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+            _dependency('subprocess', subprocess).check_call(
+                ['git', 'config', '--global', '--add', 'safe.directory', '/github/workspace']
+            )
+        self._base_revision = (
+            _dependency('subprocess', subprocess).check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+        )
         self.repo_dir = Path('.').absolute()
 
     def setup_git(self):
@@ -867,10 +871,7 @@ def _default_json_serializer(object):
     return object
 
 
-
 def _default_json_serializer(object):
     if isinstance(object, jsonpath_ng.DatumInContext):
         return object.value
     return object
-
-

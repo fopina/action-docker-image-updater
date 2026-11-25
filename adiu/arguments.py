@@ -66,4 +66,3 @@ def main(argv=None):
         return c.dry_run()
     else:
         return c.run()
-
