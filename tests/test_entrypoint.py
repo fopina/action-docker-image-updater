@@ -88,10 +88,10 @@ class Test(unittest.TestCase):
             mock.patch.object(
                 cli,
                 '_image_created_at',
-                side_effect={
+                side_effect=lambda _image, candidate_tag: {
                     '1.2.0': now - timedelta(days=4),
                     '1.3.0': now - timedelta(days=1),
-                }.get,
+                }[candidate_tag],
             ) as created_at,
             redirect_stdout(output),
         ):
