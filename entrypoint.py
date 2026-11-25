@@ -403,20 +403,25 @@ class CLI:
                     newer_tags.append((new_version, tag))
         newer_tags.sort()
         if newer_tags and self._cooldown.days:
-            newest_tag = newer_tags[-1][1]
-            created = self._image_created_at(image_reference, newest_tag)
-            if created is None:
-                raise ValueError(
-                    f'Could not find a registry upload or image created timestamp for '
-                    f'{image_reference}:{newest_tag}; use cooldown 0 if you want to use this registry'
-                )
-            eligible_at = created + self._cooldown
-            if datetime.now(timezone.utc) < eligible_at:
-                print(
-                    f'::notice file={stack.relative_to(self.repo_dir)}::Skipping {image_reference}:{newest_tag}; '
-                    f'cooldown expires at {eligible_at.isoformat()}'
-                )
-                return []
+            for index in range(len(newer_tags) - 1, -1, -1):
+                candidate_tag = newer_tags[index][1]
+                created = self._image_created_at(image_reference, candidate_tag)
+                if created is None:
+                    raise ValueError(
+                        f'Could not find a registry upload or image created timestamp for '
+                        f'{image_reference}:{candidate_tag}; use cooldown 0 if you want to use this registry'
+                    )
+                eligible_at = created + self._cooldown
+                if datetime.now(timezone.utc) < eligible_at:
+                    print(
+                        f'::notice file={stack.relative_to(self.repo_dir)}::Skipping {image_reference}:{candidate_tag}; '
+                        f'cooldown expires at {eligible_at.isoformat()}'
+                    )
+                    continue
+                # Keep only tags through the highest eligible version. update_stack
+                # selects the last item, so cooling-down versions must be excluded.
+                return newer_tags[: index + 1]
+            return []
         return newer_tags
 
     @staticmethod
