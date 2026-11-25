@@ -6,6 +6,7 @@ FROM base AS builder
 WORKDIR /src
 COPY pyproject.toml uv.lock README.md ./
 COPY entrypoint.py ./
+COPY adiu ./adiu
 RUN uv pip install --system --target=/app .
 
 # --- tests
