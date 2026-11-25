@@ -85,11 +85,24 @@ class Test(unittest.TestCase):
         output = io.StringIO()
         with (
             mock.patch('entrypoint.get_tags', return_value=['1.2.0', '1.3.0']),
-            mock.patch.object(cli, '_image_created_at', return_value=now - timedelta(days=1)) as created_at,
+            mock.patch.object(
+                cli,
+                '_image_created_at',
+                side_effect=lambda _image, candidate_tag: {
+                    '1.2.0': now - timedelta(days=4),
+                    '1.3.0': now - timedelta(days=1),
+                }[candidate_tag],
+            ) as created_at,
             redirect_stdout(output),
         ):
-            self.assertEqual(cli.check_image(cli.repo_dir / 'compose.yml', 'example/image', '1.1.0'), [])
-        created_at.assert_called_once_with('example/image', '1.3.0')
+            self.assertEqual(
+                cli.check_image(cli.repo_dir / 'compose.yml', 'example/image', '1.1.0'),
+                [((1, 2, 0), '1.2.0')],
+            )
+        self.assertEqual(
+            created_at.call_args_list,
+            [mock.call('example/image', '1.3.0'), mock.call('example/image', '1.2.0')],
+        )
         self.assertIn('Skipping example/image:1.3.0', output.getvalue())
         self.assertIn('cooldown expires at', output.getvalue())
 
